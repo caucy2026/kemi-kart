@@ -93,3 +93,21 @@ lib/astc-encoder
 lib/shaderc
 
 .DS_Store
+
+# macOS STK Android build artifacts
+android/deps-arm64-v8a/
+android/deps-armeabi-v7a/
+android/deps-x86/
+android/deps-x86_64/
+android/curl/
+android/harfbuzz/
+android/libvorbis/
+android/libs/
+android/obj/
+android/*.bak
+android/*.tar.xz
+android/local.properties
+android/make_deps_arm64.sh
+android/make_final.sh
+android/src/main/jniLibs/
+lib/sdl2.tar.gz

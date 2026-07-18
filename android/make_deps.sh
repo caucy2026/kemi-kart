@@ -1,5 +1,7 @@
 #!/bin/sh
 # Tested with NDK 28.1.13356709
+# macOS shims
+realpath() { python3 -c "import os,sys; print(os.path.realpath(sys.argv[1]))" "$1"; }
 
 export DIRNAME=$(realpath "$(dirname "$0")")
 
@@ -54,8 +56,8 @@ if [ ! -d "$NDK_PATH" ]; then
     exit
 fi
 
-export NDK_TOOLCHAIN_PATH="$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64/bin"
-export NDK_SYSROOT="$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
+export NDK_TOOLCHAIN_PATH="$NDK_PATH/toolchains/llvm/prebuilt/darwin-x86_64/bin"
+export NDK_SYSROOT="$NDK_PATH/toolchains/llvm/prebuilt/darwin-x86_64/sysroot"
 export PATH="$NDK_TOOLCHAIN_PATH:$PATH"
 
 build_deps()
@@ -95,7 +97,7 @@ build_deps()
         cd "$DIRNAME/deps-$ARCH_OPTION/zlib"
         cmake . -DCMAKE_TOOLCHAIN_FILE=../../../cmake/Toolchain-android.cmake \
                 -DHOST=$HOST -DARCH=$ARCH -DCMAKE_C_FLAGS=" -Wl,--undefined-version -fpic -O3 -g" &&
-        make -j $(($(nproc) + 1))
+        make -j $(($(sysctl -n hw.ncpu) + 1))
         check_error
         touch "$DIRNAME/deps-$ARCH_OPTION/zlib.stamp"
     fi
@@ -115,7 +117,7 @@ build_deps()
                 -DZLIB_INCLUDE_DIR="$DIRNAME/deps-$ARCH_OPTION/zlib/"         \
                 -DM_LIBRARY="$MLIBRARY"                                       \
                 -DPNG_TESTS=0 -DCMAKE_C_FLAGS="-fpic -O3 -g" &&
-        make -j $(($(nproc) + 1))
+        make -j $(($(sysctl -n hw.ncpu) + 1))
         check_error
         touch "$DIRNAME/deps-$ARCH_OPTION/libpng.stamp"
     fi
@@ -135,7 +137,7 @@ build_deps()
                  -DFT_WITH_HARFBUZZ=OFF -DFT_WITH_BZIP2=OFF                    \
                  -DFT_WITH_BROTLI=OFF -DFT_WITH_ZLIB=ON -DFT_WITH_PNG=ON       \
                  -DCMAKE_C_FLAGS="-fpic -O3 -g" &&
-        make -j $(($(nproc) + 1))
+        make -j $(($(sysctl -n hw.ncpu) + 1))
         check_error
         # We need to rebuild freetype after harfbuzz is compiled
         touch "$DIRNAME/deps-$ARCH_OPTION/freetype_bootstrap.stamp"
@@ -155,7 +157,7 @@ build_deps()
                  -DHB_HAVE_GLIB=OFF -DHB_HAVE_GOBJECT=OFF -DHB_HAVE_ICU=OFF       \
                  -DHB_HAVE_FREETYPE=ON -DHB_BUILD_SUBSET=OFF                      \
                  -DCMAKE_C_FLAGS="-fpic -O3 -g" -DCMAKE_CXX_FLAGS="-std=gnu++0x -fpic -O3 -g" &&
-        make -j $(($(nproc) + 1))
+        make -j $(($(sysctl -n hw.ncpu) + 1))
         check_error
         mkdir -p "$DIRNAME/deps-$ARCH_OPTION/harfbuzz/include/harfbuzz"
         cp $DIRNAME/deps-$ARCH_OPTION/harfbuzz/src/*.h "$DIRNAME/deps-$ARCH_OPTION/harfbuzz/include/harfbuzz"
@@ -178,7 +180,7 @@ build_deps()
                  -DFT_WITH_HARFBUZZ=ON -DFT_WITH_BZIP2=OFF                     \
                  -DFT_WITH_BROTLI=OFF -DFT_WITH_ZLIB=ON -DFT_WITH_PNG=ON       \
                  -DCMAKE_C_FLAGS="-fpic -O3 -g" &&
-        make -j $(($(nproc) + 1))
+        make -j $(($(sysctl -n hw.ncpu) + 1))
         check_error
         touch "$DIRNAME/deps-$ARCH_OPTION/freetype.stamp"
     fi
@@ -196,7 +198,7 @@ build_deps()
                 -DOPENSL_INCLUDE_DIR="$NDK_SYSROOT/usr/include/SLES/"           \
                 -DOPENSL_ANDROID_INCLUDE_DIR="$NDK_SYSROOT/usr/include/SLES/"   \
                 -DCMAKE_C_FLAGS="-fpic -O3 -g" -DCMAKE_CXX_FLAGS="-fpic -O3 -g" &&
-        make -j $(($(nproc) + 1))
+        make -j $(($(sysctl -n hw.ncpu) + 1))
         check_error
         touch "$DIRNAME/deps-$ARCH_OPTION/openal.stamp"
     fi
@@ -215,7 +217,7 @@ build_deps()
                 -DHOST=$HOST -DARCH=$ARCH -DBUILD_SHARED_LIBS=OFF             \
                 -DENABLE_TESTING=OFF -DENABLE_PROGRAMS=OFF                    \
                 -DCMAKE_C_FLAGS="-fpic -O3 -g" &&
-        make -j $(($(nproc) + 1))
+        make -j $(($(sysctl -n hw.ncpu) + 1))
         check_error
         touch "$DIRNAME/deps-$ARCH_OPTION/mbedtls.stamp"
     fi
@@ -239,9 +241,10 @@ build_deps()
                 -DCURL_USE_MBEDTLS=ON -DUSE_ZLIB=ON -DCURL_USE_OPENSSL=OFF    \
                 -DCURL_USE_LIBSSH=OFF -DCURL_USE_LIBSSH2=OFF                  \
                 -DCURL_USE_GSSAPI=OFF -DUSE_NGHTTP2=OFF -DUSE_QUICHE=OFF      \
+                -DCURL_USE_LIBPSL=OFF -DCURL_USE_LIBIDN2=OFF -DCURL_BROTLI=OFF -DCURL_ZSTD=OFF \
                 -DHTTP_ONLY=ON -DCURL_CA_BUNDLE=none -DCURL_CA_PATH=none      \
                 -DENABLE_THREADED_RESOLVER=ON -DCMAKE_C_FLAGS="-fpic -O3 -g" &&
-        make -j $(($(nproc) + 1))
+        make -j $(($(sysctl -n hw.ncpu) + 1))
         check_error
         touch "$DIRNAME/deps-$ARCH_OPTION/curl.stamp"
     fi
@@ -255,7 +258,7 @@ build_deps()
         cd "$DIRNAME/deps-$ARCH_OPTION/libjpeg"
         cmake . -DCMAKE_TOOLCHAIN_FILE=../../../cmake/Toolchain-android.cmake \
                 -DHOST=$HOST -DARCH=$ARCH -DCMAKE_C_FLAGS="-fpic -O3 -g" &&
-        make -j $(($(nproc) + 1))
+        make -j $(($(sysctl -n hw.ncpu) + 1))
         check_error
         touch "$DIRNAME/deps-$ARCH_OPTION/libjpeg.stamp"
     fi
@@ -269,7 +272,7 @@ build_deps()
         cd "$DIRNAME/deps-$ARCH_OPTION/libogg"
         cmake . -DCMAKE_TOOLCHAIN_FILE=../../../cmake/Toolchain-android.cmake \
                 -DHOST=$HOST -DARCH=$ARCH -DCMAKE_C_FLAGS="-fpic -O3 -g" &&
-        make -j $(($(nproc) + 1))
+        make -j $(($(sysctl -n hw.ncpu) + 1))
         check_error
         touch "$DIRNAME/deps-$ARCH_OPTION/libogg.stamp"
     fi
@@ -285,7 +288,7 @@ build_deps()
                 -DHOST=$HOST -DARCH=$ARCH -DCMAKE_C_FLAGS="-fpic -O3 -g"      \
                 -DOGG_LIBRARY="$DIRNAME/deps-$ARCH_OPTION/libogg/libogg.a"    \
                 -DOGG_INCLUDE_DIR="$DIRNAME/deps-$ARCH_OPTION/libogg/include" &&
-        make -j $(($(nproc) + 1))
+        make -j $(($(sysctl -n hw.ncpu) + 1))
         check_error
         touch "$DIRNAME/deps-$ARCH_OPTION/libvorbis.stamp"
     fi
@@ -313,7 +316,7 @@ build_deps()
                 -DSKIP_SPIRV_TOOLS_INSTALL=1 -DSPIRV_SKIP_TESTS=1              \
                 -DSPIRV_SKIP_EXECUTABLES=1 -DENABLE_GLSLANG_BINARIES=0         \
                 -DENABLE_CTEST=0 &&
-        make -j $(($(nproc) + 1))
+        make -j $(($(sysctl -n hw.ncpu) + 1))
         # Strip debug symbol to make app bundle smaller
         llvm-strip --strip-debug "$DIRNAME/deps-$ARCH_OPTION/shaderc/libshaderc/libshaderc_combined.a"
         check_error
@@ -337,7 +340,7 @@ build_deps()
                     -DHOST=$HOST -DARCH=$ARCH -DCMAKE_C_FLAGS="-fpic -O3 -g"      \
                     -DCMAKE_CXX_FLAGS="-fpic -O3 -g"
         fi
-        make -j $(($(nproc) + 1))
+        make -j $(($(sysctl -n hw.ncpu) + 1))
         check_error
         touch "$DIRNAME/deps-$ARCH_OPTION/libsquish.stamp"
     fi
@@ -371,7 +374,7 @@ build_deps()
                     -DCMAKE_CXX_FLAGS="-fpic -O3 -g"                              \
                     -DASTCENC_ISA_SSE41=ON -DASTCENC_INVARIANCE=OFF -DASTCENC_CLI=OFF
         fi
-        make -j $(($(nproc) + 1))
+        make -j $(($(sysctl -n hw.ncpu) + 1))
         check_error
         touch "$DIRNAME/deps-$ARCH_OPTION/astc-encoder.stamp"
     fi
@@ -390,7 +393,7 @@ build_deps()
                     -DHOST=$HOST -DARCH=$ARCH -DCMAKE_C_FLAGS="-fpic -O3 -g"      \
                     -DCMAKE_CXX_FLAGS="-fpic -O3 -g"                              \
                     -DCMAKE_SHARED_LINKER_FLAGS="-static-libstdc++ -static-libgcc"
-            make -j $(($(nproc) + 1))
+            make -j $(($(sysctl -n hw.ncpu) + 1))
             check_error
             cp "$DIRNAME/deps-$ARCH_OPTION/libadrenotools/src/hook/libhook_impl.so" "$DIRNAME/mesa/arm64-v8a"
             cp "$DIRNAME/deps-$ARCH_OPTION/libadrenotools/src/hook/libmain_hook.so" "$DIRNAME/mesa/arm64-v8a"
@@ -408,9 +411,9 @@ build_deps()
 ndk_path = '$NDK_PATH'
 
 [binaries]
-ar = ndk_path / 'toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar'
-c = ['ccache', ndk_path / 'toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android26-clang']
-cpp = ['ccache', ndk_path / 'toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android26-clang++', '-fno-exceptions', '-fno-unwind-tables', '-fno-asynchronous-unwind-tables', '-static-libstdc++', '-Wno-c++11-narrowing']
+ar = ndk_path / 'toolchains/llvm/prebuilt/darwin-x86_64/bin/llvm-ar'
+c = ['ccache', ndk_path / 'toolchains/llvm/prebuilt/darwin-x86_64/bin/aarch64-linux-android26-clang']
+cpp = ['ccache', ndk_path / 'toolchains/llvm/prebuilt/darwin-x86_64/bin/aarch64-linux-android26-clang++', '-fno-exceptions', '-fno-unwind-tables', '-fno-asynchronous-unwind-tables', '-static-libstdc++', '-Wno-c++11-narrowing']
 c_ld = 'lld'
 cpp_ld = 'lld'
 
@@ -422,7 +425,7 @@ cpp_ld = 'lld'
 # interacting with the panfrost DRM module and not kbase
 pkg-config = ['env', 'PKG_CONFIG_LIBDIR=.:/tmp/drm-static/lib/pkgconfig', '/usr/bin/pkg-config']
 
-strip = [ndk_path / 'toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android-strip', '-s']
+strip = [ndk_path / 'toolchains/llvm/prebuilt/darwin-x86_64/bin/aarch64-linux-android-strip', '-s']
 
 [host_machine]
 system = 'android'
@@ -456,10 +459,10 @@ EOF
 }
 
 if [ -z "$COMPILE_ARCH" ] || [ "$COMPILE_ARCH" = "all" ]; then
-    build_deps armv7
+    #build_deps armv7
     build_deps aarch64
-    build_deps x86
-    build_deps x86_64
+    #build_deps x86
+    ##build_deps x86_64
 else
     build_deps "$COMPILE_ARCH"
 fi

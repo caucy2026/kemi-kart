@@ -132,19 +132,6 @@ include $(CLEAR_VARS)
 endif
 
 
-# ifaddrs
-LOCAL_MODULE    := ifaddrs
-LOCAL_PATH      := .
-LOCAL_SRC_FILES := ../lib/ifaddrs/ifaddrs.c
-LOCAL_CFLAGS    := -I../lib/ifaddrs
-# Starting NDK21 it enables NEON by default on 32-bit ARM target
-# Disable it to support more phones
-#ifeq ($(TARGET_ARCH_ABI), armeabi-v7a)
-#LOCAL_ARM_NEON  := false
-#endif
-include $(BUILD_STATIC_LIBRARY)
-include $(CLEAR_VARS)
-
 
 # AngelScript
 LOCAL_MODULE       := angelscript
@@ -357,7 +344,6 @@ LOCAL_CFLAGS       := -I../lib/angelscript/include      \
                       -I../lib/bullet/src               \
                       -I../lib/sheenbidi/Headers        \
                       -I../lib/enet/include             \
-                      -I../lib/ifaddrs                  \
                       -I../lib/irrlicht/include         \
                       -I../lib/irrlicht/source/Irrlicht \
                       -I../lib/graphics_utils           \
@@ -387,7 +373,7 @@ LOCAL_CFLAGS       := -I../lib/angelscript/include      \
                       -DANDROID_PACKAGE_CLASS_NAME=\"$(PACKAGE_CLASS_NAME)\"
 LOCAL_CPPFLAGS     := -std=gnu++0x
 
-LOCAL_STATIC_LIBRARIES := irrlicht bullet enet ifaddrs angelscript mcpp SDL2 \
+LOCAL_STATIC_LIBRARIES := irrlicht bullet enet angelscript mcpp SDL2 \
                           vorbisfile vorbis ogg openal curl libmbedtls       \
                           libmbedcrypto libmbedx509 sheenbidi                \
                           harfbuzz freetype tinygettext graphics_utils       \

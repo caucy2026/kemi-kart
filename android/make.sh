@@ -1,5 +1,7 @@
 #!/bin/bash
 #
+# macOS shims
+realpath() { python3 -c "import os,sys; print(os.path.realpath(sys.argv[1]))" "$1"; }
 # (C) 2016-2017 Dawid Gan, under the GPLv3
 #
 # A script that creates the apk build
@@ -13,7 +15,7 @@ export SDK_PATH_DEFAULT="$DIRNAME/android-sdk"
 export NDK_BUILD_SCRIPT="$DIRNAME/Android.mk"
 
 #export NDK_CCACHE=ccache
-export CPU_CORE="-j$(($(nproc) + 1))"
+export CPU_CORE="-j$(($(sysctl -n hw.ncpu) + 1))"
 
 if [ -z "$STK_MIN_ANDROID_SDK" ]; then
     export STK_MIN_ANDROID_SDK=21
@@ -394,23 +396,23 @@ sed -i "s/package org.supertuxkart.*/package $PACKAGE_NAME;/g" \
 sed -i "s/import org.supertuxkart.*/import $PACKAGE_NAME.STKEditText;/g" \
        "$DIRNAME/src/main/java/SuperTuxKartActivity.java"
 
-cp -f "$DIRNAME/../lib/sdl2/android-project/app/src/main/java/org/libsdl/app/HIDDevice.java" \
+#SDL_COPY_DISABLED/android-project/app/src/main/java/org/libsdl/app/HIDDevice.java" \
        "$DIRNAME/src/main/java/"
-cp -f "$DIRNAME/../lib/sdl2/android-project/app/src/main/java/org/libsdl/app/HIDDeviceBLESteamController.java" \
+#SDL_COPY_DISABLED/android-project/app/src/main/java/org/libsdl/app/HIDDeviceBLESteamController.java" \
        "$DIRNAME/src/main/java/"
-cp -f "$DIRNAME/../lib/sdl2/android-project/app/src/main/java/org/libsdl/app/HIDDeviceManager.java" \
+#SDL_COPY_DISABLED/android-project/app/src/main/java/org/libsdl/app/HIDDeviceManager.java" \
        "$DIRNAME/src/main/java/"
-cp -f "$DIRNAME/../lib/sdl2/android-project/app/src/main/java/org/libsdl/app/HIDDeviceUSB.java" \
+#SDL_COPY_DISABLED/android-project/app/src/main/java/org/libsdl/app/HIDDeviceUSB.java" \
        "$DIRNAME/src/main/java/"
-cp -f "$DIRNAME/../lib/sdl2/android-project/app/src/main/java/org/libsdl/app/SDLActivity.java" \
+#SDL_COPY_DISABLED" \
        "$DIRNAME/src/main/java/"
-cp -f "$DIRNAME/../lib/sdl2/android-project/app/src/main/java/org/libsdl/app/SDLAudioManager.java" \
+#SDL_COPY_DISABLED" \
        "$DIRNAME/src/main/java/"
-cp -f "$DIRNAME/../lib/sdl2/android-project/app/src/main/java/org/libsdl/app/SDLControllerManager.java" \
+#SDL_COPY_DISABLED" \
        "$DIRNAME/src/main/java/"
-cp -f "$DIRNAME/../lib/sdl2/android-project/app/src/main/java/org/libsdl/app/SDL.java" \
+#SDL_COPY_DISABLED/android-project/app/src/main/java/org/libsdl/app/SDL.java" \
        "$DIRNAME/src/main/java/"
-cp -f "$DIRNAME/../lib/sdl2/android-project/app/src/main/java/org/libsdl/app/SDLSurface.java" \
+#SDL_COPY_DISABLED/android-project/app/src/main/java/org/libsdl/app/SDLSurface.java" \
        "$DIRNAME/src/main/java/"
 
 cp "banner.png" "$DIRNAME/res/drawable/banner.png"
