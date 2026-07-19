@@ -222,9 +222,15 @@ void dualScreenGetSize(int* width, int* height)
     if (height) *height = g_secondHeight;
 }
 
+// Saved Display 0 EGL surface for restore after Display 2 rendering
+static EGLSurface g_primaryDrawSurface = EGL_NO_SURFACE;
+static EGLSurface g_primaryReadSurface = EGL_NO_SURFACE;
+static EGLDisplay g_primaryDisplay = EGL_NO_DISPLAY;
+static EGLContext g_primaryContext = EGL_NO_CONTEXT;
+
 /**
- * Activate the second EGL surface for rendering.
- * Call before rendering Camera 1's viewport.
+ * Activate the second EGL surface for rendering Camera 1.
+ * Saves Display 0's EGL state so it can be restored later.
  * Returns true on success.
  */
 bool dualScreenMakeCurrent()
@@ -233,16 +239,20 @@ bool dualScreenMakeCurrent()
         return false;
     }
     
-    EGLDisplay display = eglGetCurrentDisplay();
-    EGLContext context = eglGetCurrentContext();
+    // Save Display 0's EGL state before switching
+    g_primaryDisplay = eglGetCurrentDisplay();
+    g_primaryDrawSurface = eglGetCurrentSurface(EGL_DRAW);
+    g_primaryReadSurface = eglGetCurrentSurface(EGL_READ);
+    g_primaryContext = eglGetCurrentContext();
     
-    if (display == EGL_NO_DISPLAY || context == EGL_NO_CONTEXT) {
-        LOGE("dualScreenMakeCurrent: no EGL context");
+    if (g_primaryDisplay == EGL_NO_DISPLAY || g_primaryContext == EGL_NO_CONTEXT) {
+        LOGE("dualScreenMakeCurrent: no EGL context on Display 0");
         return false;
     }
     
-    EGLBoolean result = eglMakeCurrent(display, g_secondEGLSurface, 
-                                        g_secondEGLSurface, context);
+    // Switch to Display 2
+    EGLBoolean result = eglMakeCurrent(g_primaryDisplay, g_secondEGLSurface, 
+                                        g_secondEGLSurface, g_primaryContext);
     if (result == EGL_FALSE) {
         EGLint error = eglGetError();
         LOGE("dualScreenMakeCurrent failed: error 0x%x", error);
@@ -278,10 +288,25 @@ bool dualScreenSwapBuffers()
 }
 
 /**
- * Restore the primary EGL surface (SDL's surface) for rendering.
+ * Restore the primary EGL surface (SDL's surface on Display 0).
+ * Must be called after dualScreenSwapBuffers() to return to Display 0.
  */
 bool dualScreenRestorePrimary()
 {
+    if (g_primaryDrawSurface == EGL_NO_SURFACE || 
+        g_primaryDisplay == EGL_NO_DISPLAY) {
+        LOGE("dualScreenRestorePrimary: no saved Display 0 surface");
+        return false;
+    }
+    
+    EGLBoolean result = eglMakeCurrent(g_primaryDisplay, g_primaryDrawSurface,
+                                        g_primaryReadSurface, g_primaryContext);
+    if (result == EGL_FALSE) {
+        EGLint error = eglGetError();
+        LOGE("dualScreenRestorePrimary failed: error 0x%x", error);
+        return false;
+    }
+    
     return true;
 }
 
