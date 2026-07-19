@@ -802,11 +802,15 @@ void ShaderBasedRenderer::render(float dt, bool is_loading)
         // Save projection-view matrix for the next frame
         camera->setPreviousPVMatrix(irr_driver->getProjViewMatrix());
 
-        // Dual-screen: after Camera 1, swap Display 2 and restore Display 0
+        // Dual-screen: render Player 1's GUI on Display 2, then swap & restore
         if (dual_active && cam == 1)
         {
+            // Render Player 1's HUD (steering wheel, speed, rank, etc.) on Display 2
+            // before swapping — this gives the "network client" feel where
+            // each display shows its own player's full HUD
+            rg->renderPlayerView(camera, dt);
+            
             dualScreenSwapBuffers();
-            // Restore Display 0 for subsequent GUI rendering
             if (!dualScreenRestorePrimary())
             {
                 Log::warn("ShaderBasedRenderer", "Failed to restore Display 0");
@@ -832,6 +836,9 @@ void ShaderBasedRenderer::render(float dt, bool is_loading)
 
     for(unsigned int i=0; i<Camera::getNumCameras(); i++)
     {
+        // Dual-screen: Camera 1's GUI already rendered on Display 2
+        if (dual_active && i == 1) continue;
+        
         Camera *camera = Camera::getCamera(i);
         std::ostringstream oss;
         oss << "renderPlayerView() for kart " << i;
