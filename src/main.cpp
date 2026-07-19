@@ -568,6 +568,105 @@ void setupRaceStart()
     input_manager->getDeviceManager()->setAssignMode(ASSIGN);
 }   // setupRaceStart
 
+// ======================================================================
+#ifdef ANDROID
+/**
+ * Start a 2-player local race for dual-screen mode.
+ * Skips all menus: sets up P1 (Display 0) and P2 (Display 2) with
+ * default karts and a default track, then starts the race immediately.
+ */
+static void startDualScreenRace()
+{
+    Log::info("main", "Starting dual-screen 2-player race...");
+    
+    // Ensure there are at least 2 player profiles
+    PlayerManager::get()->enforceCurrentPlayer();
+    
+    // Create guest players if needed (Player 2)
+    unsigned total_players = PlayerManager::get()->getNumPlayers();
+    if (total_players < 2)
+    {
+        PlayerManager::get()->createGuestPlayers(2 - total_players);
+    }
+    
+    InputDevice* dev0 = input_manager->getDeviceManager()->getKeyboard(0);
+    InputDevice* dev1 = input_manager->getDeviceManager()->getKeyboard(1);
+    
+    // If second keyboard not available, use first keyboard for both players
+    if (dev1 == NULL)
+        dev1 = dev0;
+    
+    if (dev0 == NULL)
+    {
+        Log::error("main", "Dual-screen: No input device available!");
+        return;
+    }
+    
+    // Enable devices
+    if (dev0->getConfiguration() && !dev0->getConfiguration()->isEnabled())
+        dev0->getConfiguration()->setEnabled(true);
+    if (dev1->getConfiguration() && !dev1->getConfiguration()->isEnabled())
+        dev1->getConfiguration()->setEnabled(true);
+    
+    // Create active players
+    StateManager::get()->createActivePlayer(
+        PlayerManager::get()->getPlayer(0), dev0);
+    StateManager::get()->createActivePlayer(
+        PlayerManager::get()->getPlayer(1), dev1);
+    
+    // Set up RaceManager for 2 local players
+    RaceManager::get()->setNumPlayers(2);
+    RaceManager::get()->setNumLaps(3);
+    RaceManager::get()->setMajorMode(RaceManager::MAJOR_MODE_SINGLE);
+    RaceManager::get()->setMinorMode(RaceManager::MINOR_MODE_NORMAL_RACE);
+    RaceManager::get()->setDifficulty(RaceManager::DIFFICULTY_MEDIUM);
+    
+    // Set default karts for both players
+    // Use first available karts (different ones if possible)
+    unsigned kart_count = kart_properties_manager->getNumberOfKarts();
+    std::string kart0 = "tux";
+    std::string kart1 = "tux";
+    if (kart_count > 0)
+    {
+        const KartProperties* kp0 = kart_properties_manager->getKartById(0);
+        kart0 = kp0->getIdent();
+    }
+    if (kart_count > 1)
+    {
+        const KartProperties* kp1 = kart_properties_manager->getKartById(1);
+        kart1 = kp1->getIdent();
+    }
+    
+    RaceManager::get()->setPlayerKart(0, kart0);
+    RaceManager::get()->setPlayerKart(1, kart1);
+    Log::info("main", "Dual-screen: P1=%s P2=%s", kart0.c_str(), kart1.c_str());
+    
+    // Use a default track
+    std::string track_name = "jungle";
+    Track* track = track_manager->getTrack(track_name);
+    if (track == NULL && track_manager->getNumberOfTracks() > 0)
+    {
+        track = track_manager->getTrack(0);
+        if (track) track_name = track->getIdent();
+    }
+    RaceManager::get()->setTrack(track_name);
+    Log::info("main", "Dual-screen: Track=%s", track_name.c_str());
+    
+    // AI count: 0 (just 2 human players)
+    RaceManager::get()->setNumKarts(2);
+    
+    // Assign mode: only assigned devices get input
+    input_manager->getDeviceManager()->setAssignMode(ASSIGN);
+    
+    // Enter game state and start
+    StateManager::get()->enterGameState();
+    RaceManager::get()->setupPlayerKartInfo();
+    RaceManager::get()->startNew(false);
+    
+    Log::info("main", "Dual-screen race started!");
+}
+#endif
+// ======================================================================
 // ----------------------------------------------------------------------------
 /** Prints help for command line options to stdout.
  */
@@ -2566,6 +2665,15 @@ int main(int argc, char *argv[])
             // so we immediately start the main menu (unless it was requested
             // to always show the login screen). Otherwise show the login
             // screen first.
+#ifdef ANDROID
+            extern bool dualScreenIsReady();
+            if (dualScreenIsReady())
+            {
+                // Dual-screen mode: skip menus, start 2-player race
+                startDualScreenRace();
+            }
+            else
+#endif
             if(PlayerManager::getCurrentPlayer() && !
                 UserConfigParams::m_always_show_login_screen)
             {

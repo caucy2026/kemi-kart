@@ -365,6 +365,8 @@ void AssetsAndroid::setProgressBar(int progress)
 
     jmethodID method_id = env->GetMethodID(class_native_activity,
         "showExtractProgress", "(I)V");
+    if (env->ExceptionCheck())
+        env->ExceptionClear();
     if (method_id == NULL)
     {
         Log::error("AssetsAndroid",

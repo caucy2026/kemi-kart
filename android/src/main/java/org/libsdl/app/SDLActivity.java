@@ -3,6 +3,7 @@ package org.libsdl.app;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.Dialog;
+import android.app.Presentation;
 import android.app.UiModeManager;
 import android.content.ClipboardManager;
 import android.content.ClipData;
@@ -18,6 +19,7 @@ import android.graphics.Color;
 import android.graphics.PorterDuff;
 import android.graphics.drawable.Drawable;
 import android.hardware.Sensor;
+import android.hardware.display.DisplayManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -219,6 +221,12 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
     protected static SDLGenericMotionListener_API12 mMotionListener;
     protected static HIDDeviceManager mHIDDeviceManager;
 
+    // Dual-screen support
+    protected static DualScreenPresentation mPresentation;
+    protected static SDLSurface mSecondSurface;
+    protected static DisplayManager mDisplayManager;
+    protected static boolean mDualScreenEnabled = false;
+
     // This is what SDL runs in. It invokes SDL_main(), eventually
     protected static Thread mSDLThread;
 
@@ -300,6 +308,10 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
         // Otherwise, when exiting the app and returning to it, these variables *keep* their pre exit values
         mSingleton = null;
         mSurface = null;
+        mSecondSurface = null;
+        mPresentation = null;
+        mDisplayManager = null;
+        mDualScreenEnabled = false;
         mTextEdit = null;
         mLayout = null;
         mClipboardHandler = null;
@@ -314,6 +326,86 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
     
     protected SDLSurface createSDLSurface(Context context) {
         return new SDLSurface(context);
+    }
+
+    /**
+     * Initialize dual-screen support. Detects if a second display is available
+     * and creates a Presentation for it.
+     */
+    protected void initDualScreen() {
+        try {
+            mDisplayManager = (DisplayManager) getSystemService(Context.DISPLAY_SERVICE);
+            Display[] displays = mDisplayManager.getDisplays(DisplayManager.DISPLAY_CATEGORY_PRESENTATION);
+            
+            Log.v(TAG, "initDualScreen: found " + displays.length + " presentation display(s)");
+            
+            // Also check all displays
+            Display[] allDisplays = mDisplayManager.getDisplays();
+            Log.v(TAG, "initDualScreen: total " + allDisplays.length + " display(s)");
+            for (Display d : allDisplays) {
+                Log.v(TAG, "  Display " + d.getDisplayId() + ": " + d.getName() 
+                    + " (" + d.getWidth() + "x" + d.getHeight() + ") flags=" + d.getFlags());
+            }
+
+            // Find external display (typically display ID 2 on this device)
+            Display secondDisplay = null;
+            for (Display d : allDisplays) {
+                if (d.getDisplayId() != 0 && (d.getFlags() & Display.FLAG_PRESENTATION) != 0) {
+                    secondDisplay = d;
+                    break;
+                }
+            }
+            
+            // Fallback: try display ID 2 directly
+            if (secondDisplay == null) {
+                for (Display d : allDisplays) {
+                    if (d.getDisplayId() == 2) {
+                        secondDisplay = d;
+                        break;
+                    }
+                }
+            }
+
+            if (secondDisplay != null) {
+                Log.v(TAG, "initDualScreen: creating Presentation on display " + secondDisplay.getDisplayId());
+                mPresentation = new DualScreenPresentation(this, secondDisplay);
+                mPresentation.show();
+                mDualScreenEnabled = true;
+            } else {
+                Log.v(TAG, "initDualScreen: no second display found, dual-screen disabled");
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "initDualScreen failed: " + e.toString());
+            mDualScreenEnabled = false;
+        }
+    }
+
+    /**
+     * Called by DualScreenPresentation when the second surface is created.
+     */
+    public static void onSecondSurfaceCreated(SDLSurface surface) {
+        Log.v(TAG, "onSecondSurfaceCreated()");
+        mSecondSurface = surface;
+        if (mSecondSurface != null) {
+            Surface nativeSurface = mSecondSurface.getNativeSurface();
+            onNativeSecondSurfaceCreated(nativeSurface);
+        }
+    }
+
+    /**
+     * Called when the second surface is destroyed (e.g. display disconnected).
+     */
+    public static void onSecondSurfaceDestroyed() {
+        Log.v(TAG, "onSecondSurfaceDestroyed()");
+        onNativeSecondSurfaceDestroyed();
+        mSecondSurface = null;
+    }
+
+    /**
+     * Check if dual-screen mode is active.
+     */
+    public static boolean isDualScreenEnabled() {
+        return mDualScreenEnabled && mSecondSurface != null;
     }
 
     // Setup
@@ -427,6 +519,11 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
                 SDLActivity.onNativeDropFile(filename);
             }
         }
+
+        // Initialize dual-screen support (Display 2 for Player 2)
+        // Delayed: called from native after SDL/GL is ready
+        // (see irr_driver.cpp -> onSDLReady callback)
+        // initDualScreen();
     }
 
     protected void pauseNativeThread() {
@@ -582,6 +679,13 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
     @Override
     protected void onDestroy() {
         Log.v(TAG, "onDestroy()");
+
+        // Clean up dual-screen presentation
+        if (mPresentation != null) {
+            mPresentation.destroy();
+            mPresentation = null;
+        }
+        mDualScreenEnabled = false;
 
         if (mHIDDeviceManager != null) {
             HIDDeviceManager.release(mHIDDeviceManager);
@@ -924,6 +1028,11 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
     public static native void onNativeSurfaceCreated();
     public static native void onNativeSurfaceChanged();
     public static native void onNativeSurfaceDestroyed();
+    // Dual-screen: second display surface callbacks
+    public static native void onNativeSecondSurfaceCreated(Surface surface);
+    public static native void onNativeSecondSurfaceChanged(Surface surface, int width, int height);
+    public static native void onNativeSecondSurfaceDestroyed();
+    public static native void nativeSetSecondScreenResolution(int width, int height);
     public static native String nativeGetHint(String name);
     public static native boolean nativeGetHintBoolean(String name, boolean default_value);
     public static native void nativeSetenv(String name, String value);
@@ -1860,6 +1969,39 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
         }
         return 0;
     }
+
+    // STK compatibility methods (added for STK dual-screen mod)
+    public static void reFocusAfterSTKEditText() { 
+        if (mSurface != null) mSurface.requestFocus(); 
+    }
+    public static void moveView(int m) {}
+    
+    /** Called from native code when SDL/OpenGL is fully initialized.
+     *  Safe to create second display Presentation now. */
+    public static void onSDLRenderingReady() {
+        if (mSingleton != null && !mDualScreenEnabled) {
+            mSingleton.runOnUiThread(new Runnable() {
+                public void run() {
+                    mSingleton.initDualScreen();
+                }
+            });
+        }
+    }
+    
+    // STK engine JNI callback methods (non-static, called from native code)
+    public int getScreenSize() {
+        return getResources().getConfiguration().screenLayout &
+            android.content.res.Configuration.SCREENLAYOUT_SIZE_MASK;
+    }
+    public boolean isHardwareKeyboardConnected() {
+        return getResources().getConfiguration()
+            .keyboard == android.content.res.Configuration.KEYBOARD_QWERTY;
+    }
+    public float getTopPadding() { return 0.0f; }
+    public float getBottomPadding() { return 0.0f; }
+    public float getLeftPadding() { return 0.0f; }
+    public float getRightPadding() { return 0.0f; }
+    public int getInitialOrientation() { return getRequestedOrientation(); }
 }
 
 /**
@@ -2113,7 +2255,4 @@ class SDLClipboardHandler implements
     public void onPrimaryClipChanged() {
         SDLActivity.onNativeClipboardChanged();
     }
-}
-    public static void reFocusAfterSTKEditText() { if (mSurface != null) mSurface.requestFocus(); }
-    public static void moveView(int m) {}
 }

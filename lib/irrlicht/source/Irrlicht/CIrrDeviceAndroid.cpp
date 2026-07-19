@@ -40,6 +40,8 @@ extern "C" int Android_getKeyboardHeight()
         goto exit;
 
     method = env->GetMethodID(class_native_activity, "getKeyboardHeight", "()I");
+    if (env->ExceptionCheck())
+        env->ExceptionClear();
     if (method == NULL)
         goto exit;
     keyboard_height = env->CallIntMethod(activity, method);
@@ -72,6 +74,8 @@ extern "C" int Android_getMovedHeight()
         goto exit;
 
     method = env->GetMethodID(class_native_activity, "getMovedHeight", "()I");
+    if (env->ExceptionCheck())
+        env->ExceptionClear();
     if (method == NULL)
         goto exit;
     moved_height = env->CallIntMethod(activity, method);

@@ -17,6 +17,11 @@
 
 #include "graphics/irr_driver.hpp"
 
+#ifdef ANDROID
+#include <SDL_system.h>
+#include <jni.h>
+#endif
+
 #include "challenges/story_mode_timer.hpp"
 #include "config/player_manager.hpp"
 #include "config/user_config.hpp"
@@ -338,6 +343,35 @@ void IrrDriver::updateConfigIfRelevant()
 // --------------------------------------------------------------------------------------------
 core::recti IrrDriver::getSplitscreenWindow(int window_num)
 {
+#ifdef ANDROID
+    // Dual-screen mode: each player gets full screen on their display
+    extern bool dualScreenIsReady();
+    if (dualScreenIsReady())
+    {
+        extern void dualScreenGetSize(int* width, int* height);
+        int w = 0, h = 0;
+        if (window_num == 0)
+        {
+            // Display 0: main screen
+            w = irr_driver->getActualScreenSize().Width;
+            h = irr_driver->getActualScreenSize().Height;
+        }
+        else
+        {
+            // Display 2: second screen
+            dualScreenGetSize(&w, &h);
+            if (w <= 0 || h <= 0)
+            {
+                w = irr_driver->getActualScreenSize().Width;
+                h = irr_driver->getActualScreenSize().Height;
+            }
+        }
+        return core::recti(core::position2di(0, 0),
+            core::dimension2du(w, h));
+    }
+#endif
+
+    // Original split-screen logic
     // Determine the number of columns and rows needed
     int total_players = RaceManager::get()->getNumLocalPlayers();
     if (total_players < 1)
@@ -697,6 +731,34 @@ begin:
     CentralVideoSettings::m_supports_sp = true;
     CVS->init();
 
+#ifdef ANDROID
+    // Notify Java that SDL/OpenGL is ready → safe to init dual-screen
+    {
+        static bool s_called_initial = false;
+        if (!s_called_initial) {
+            s_called_initial = true;
+            JNIEnv* env = (JNIEnv*)SDL_AndroidGetJNIEnv();
+            if (env) {
+                jobject activity = (jobject)SDL_AndroidGetActivity();
+                if (activity) {
+                    jclass clazz = env->GetObjectClass(activity);
+                    if (clazz) {
+                        jmethodID mid = env->GetStaticMethodID(clazz, 
+                            "onSDLRenderingReady", "()V");
+                        if (mid) {
+                            env->CallStaticVoidMethod(clazz, mid);
+                        } else if (env->ExceptionCheck()) {
+                            env->ExceptionClear();
+                        }
+                        env->DeleteLocalRef(clazz);
+                    }
+                    env->DeleteLocalRef(activity);
+                }
+            }
+        }
+    }
+#endif
+
     bool recreate_device = false;
 
     // Some drivers are able to create OpenGL 3.1 context, but shader-based
@@ -734,6 +796,34 @@ begin:
 
         GE::setVideoDriver(m_device->getVideoDriver());
         CVS->init();
+
+#ifdef ANDROID
+        // Notify Java that SDL/OpenGL is ready → safe to init dual-screen
+        {
+            static bool s_called = false;
+            if (!s_called) {
+                s_called = true;
+                JNIEnv* env = (JNIEnv*)SDL_AndroidGetJNIEnv();
+                if (env) {
+                    jobject activity = (jobject)SDL_AndroidGetActivity();
+                    if (activity) {
+                        jclass clazz = env->GetObjectClass(activity);
+                        if (clazz) {
+                            jmethodID mid = env->GetStaticMethodID(clazz, 
+                                "onSDLRenderingReady", "()V");
+                            if (mid) {
+                                env->CallStaticVoidMethod(clazz, mid);
+                            } else if (env->ExceptionCheck()) {
+                                env->ExceptionClear();
+                            }
+                            env->DeleteLocalRef(clazz);
+                        }
+                        env->DeleteLocalRef(activity);
+                    }
+                }
+            }
+        }
+#endif
     }
 #endif
     m_logger_level = irr::ELL_WARNING;
@@ -2225,7 +2315,16 @@ void IrrDriver::update(float dt, bool is_loading)
         {
             renderNetworkDebug();
         }
+
+#ifdef ANDROID
+        extern void dualScreenMirrorCapture(int w, int h);
+        extern void dualScreenMirrorPresent();
+        dualScreenMirrorCapture(m_actual_screen_size.Width, m_actual_screen_size.Height);
+#endif
         m_video_driver->endScene();
+#ifdef ANDROID
+        dualScreenMirrorPresent();
+#endif
 #endif
     }
 

@@ -338,8 +338,9 @@ LOCAL_PATH         := .
 LOCAL_CPP_FEATURES += rtti exceptions
 LOCAL_SRC_FILES    := $(wildcard ../src/*.cpp)     \
                       $(wildcard ../src/*/*.cpp)   \
-                      $(wildcard ../src/*/*/*.cpp)
-LOCAL_LDLIBS       := -llog -lm -lOpenSLES
+                      $(wildcard ../src/*/*/*.cpp) \
+                      android_native_dual_screen.cpp
+LOCAL_LDLIBS       := -llog -lm -lOpenSLES -lEGL -lGLESv2 -landroid
 LOCAL_CFLAGS       := -I../lib/angelscript/include      \
                       -I../lib/bullet/src               \
                       -I../lib/sheenbidi/Headers        \

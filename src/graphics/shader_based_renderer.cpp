@@ -732,6 +732,7 @@ void ShaderBasedRenderer::render(float dt, bool is_loading)
     }
 
     assert(Camera::getNumCameras() < MAX_PLAYER_COUNT + 1);
+    
     for(unsigned int cam = 0; cam < Camera::getNumCameras(); cam++)
     {
         SP::sp_cur_player = cam;
@@ -826,7 +827,18 @@ void ShaderBasedRenderer::render(float dt, bool is_loading)
 #endif
 
     PROFILER_PUSH_CPU_MARKER("EndScene", 0x45, 0x75, 0x45);
+    
+#ifdef ANDROID
+    extern void dualScreenMirrorCapture(int w, int h);
+    extern void dualScreenMirrorPresent();
+    dualScreenMirrorCapture(irr_driver->getActualScreenSize().Width,
+                            irr_driver->getActualScreenSize().Height);
+#endif
     irr_driver->getVideoDriver()->endScene();
+#ifdef ANDROID
+    dualScreenMirrorPresent();
+#endif
+    
     PROFILER_POP_CPU_MARKER();
 
     m_post_processing->update(dt);

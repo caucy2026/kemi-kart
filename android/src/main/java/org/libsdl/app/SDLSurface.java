@@ -40,6 +40,9 @@ public class SDLSurface extends SurfaceView implements SurfaceHolder.Callback,
     // Is SurfaceView ready for rendering
     public boolean mIsSurfaceReady;
 
+    // Dual-screen: which display this surface belongs to (0=main, 2=external)
+    protected int mDisplayId = 0;
+
     // Startup
     public SDLSurface(Context context) {
         super(context);
@@ -52,6 +55,7 @@ public class SDLSurface extends SurfaceView implements SurfaceHolder.Callback,
         setOnTouchListener(this);
 
         mDisplay = ((WindowManager)context.getSystemService(Context.WINDOW_SERVICE)).getDefaultDisplay();
+        mDisplayId = mDisplay.getDisplayId();
         mSensorManager = (SensorManager)context.getSystemService(Context.SENSOR_SERVICE);
 
         setOnGenericMotionListener(SDLActivity.getMotionListener());
@@ -61,6 +65,16 @@ public class SDLSurface extends SurfaceView implements SurfaceHolder.Callback,
         mHeight = 1.0f;
 
         mIsSurfaceReady = false;
+    }
+
+    /** Set which display this surface renders to (for dual-screen mode) */
+    public void setDisplayId(int displayId) {
+        mDisplayId = displayId;
+    }
+
+    /** Get which display this surface renders to */
+    public int getDisplayId() {
+        return mDisplayId;
     }
 
     public void handlePause() {
@@ -83,33 +97,52 @@ public class SDLSurface extends SurfaceView implements SurfaceHolder.Callback,
     // Called when we have a valid drawing surface
     @Override
     public void surfaceCreated(SurfaceHolder holder) {
-        Log.v("SDL", "surfaceCreated()");
-        SDLActivity.onNativeSurfaceCreated();
+        Log.v("SDL", "surfaceCreated() display=" + mDisplayId);
+        if (mDisplayId != 0) {
+            SDLActivity.onSecondSurfaceCreated(SDLSurface.this);
+        } else {
+            SDLActivity.onNativeSurfaceCreated();
+        }
     }
 
     // Called when we lose the surface
     @Override
     public void surfaceDestroyed(SurfaceHolder holder) {
-        Log.v("SDL", "surfaceDestroyed()");
+        Log.v("SDL", "surfaceDestroyed() display=" + mDisplayId);
 
-        // Transition to pause, if needed
-        SDLActivity.mNextNativeState = SDLActivity.NativeState.PAUSED;
-        SDLActivity.handleNativeState();
+        if (mDisplayId != 0) {
+            SDLActivity.onSecondSurfaceDestroyed();
+        } else {
+            SDLActivity.mNextNativeState = SDLActivity.NativeState.PAUSED;
+            SDLActivity.handleNativeState();
+            SDLActivity.onNativeSurfaceDestroyed();
+        }
 
         mIsSurfaceReady = false;
-        SDLActivity.onNativeSurfaceDestroyed();
     }
 
     // Called when the surface is resized
     @Override
     public void surfaceChanged(SurfaceHolder holder,
                                int format, int width, int height) {
-        Log.v("SDL", "surfaceChanged()");
+        Log.v("SDL", "surfaceChanged() display=" + mDisplayId + " size=" + width + "x" + height);
 
         if (SDLActivity.mSingleton == null) {
             return;
         }
 
+        // For second display, just notify native about size change
+        if (mDisplayId != 0) {
+            mWidth = width;
+            mHeight = height;
+            mIsSurfaceReady = true;
+            // Notify native about second display surface change
+            SDLActivity.onNativeSecondSurfaceChanged(
+                getHolder().getSurface(), width, height);
+            return;
+        }
+
+        // Original code for primary display
         mWidth = width;
         mHeight = height;
         int nDeviceWidth = width;

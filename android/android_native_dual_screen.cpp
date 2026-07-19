@@ -1,0 +1,437 @@
+// android_native_dual_screen.cpp
+// Dual-screen EGL management for STK Android
+// Manages a second EGL surface on Display 2, sharing the EGL context with Display 0.
+//
+// Architecture:
+//   Display 0 (main)  → SDL's existing EGL surface (unchanged)
+//   Display 2 (ext)   → Our second EGL surface (shared context)
+//
+// Render loop integration:
+//   For each frame:
+//     1. Render Camera 0 → SDL swaps Display 0 (normal flow)
+//     2. eglMakeCurrent(display, secondSurface, ...) 
+//     3. Render Camera 1 → eglSwapBuffers(display, secondSurface)
+
+#include <jni.h>
+#include <android/native_window.h>
+#include <android/native_window_jni.h>
+#include <EGL/egl.h>
+#include <GLES2/gl2.h>
+#include <android/log.h>
+
+#define LOG_TAG "STK_DualScreen"
+#define LOGV(...) __android_log_print(ANDROID_LOG_VERBOSE, LOG_TAG, __VA_ARGS__)
+#define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+#define LOGW(...) __android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__)
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+
+// Second display state
+static ANativeWindow* g_secondWindow = nullptr;
+static EGLSurface g_secondEGLSurface = EGL_NO_SURFACE;
+static int g_secondWidth = 0;
+static int g_secondHeight = 0;
+static bool g_secondReady = false;
+
+extern "C" {
+
+JNIEXPORT void JNICALL
+Java_org_libsdl_app_SDLActivity_onNativeSecondSurfaceCreated(
+    JNIEnv* env, jclass clazz, jobject surface)
+{
+    LOGI("onNativeSecondSurfaceCreated");
+    
+    if (surface == nullptr) {
+        LOGE("Second surface is null!");
+        return;
+    }
+    
+    // Release any previous window
+    if (g_secondWindow != nullptr) {
+        LOGI("Releasing previous second window");
+        ANativeWindow_release(g_secondWindow);
+        g_secondWindow = nullptr;
+    }
+    
+    g_secondWindow = ANativeWindow_fromSurface(env, surface);
+    if (g_secondWindow == nullptr) {
+        LOGE("Failed to get ANativeWindow from second surface");
+        return;
+    }
+    
+    // Try to get native window size
+    int32_t width = ANativeWindow_getWidth(g_secondWindow);
+    int32_t height = ANativeWindow_getHeight(g_secondWindow);
+    LOGI("Second window native size: %dx%d", width, height);
+    
+    if (width > 0 && height > 0) {
+        g_secondWidth = width;
+        g_secondHeight = height;
+    }
+    
+    // EGL surface creation is deferred until SDL's EGL context is ready.
+    // The render loop will retry via dualScreenIsReady().
+    LOGI("Second window stored. EGL surface will be created when SDL context is ready.");
+}
+
+JNIEXPORT void JNICALL
+Java_org_libsdl_app_SDLActivity_onNativeSecondSurfaceChanged(
+    JNIEnv* env, jclass clazz, jobject surface, jint width, jint height)
+{
+    LOGI("onNativeSecondSurfaceChanged: %dx%d", width, height);
+    g_secondWidth = width;
+    g_secondHeight = height;
+    
+    // If window exists but EGL surface hasn't been created, the render loop
+    // will retry via dualScreenIsReady(). Don't try to create here to avoid
+    // race conditions with SDL initialization.
+    if (g_secondWindow == nullptr && surface != nullptr)
+    {
+        // First time we get the surface - store the ANativeWindow
+        g_secondWindow = ANativeWindow_fromSurface(env, surface);
+        if (g_secondWindow != nullptr)
+        {
+            LOGI("onNativeSecondSurfaceChanged: window stored, %dx%d", width, height);
+        }
+        else
+        {
+            LOGE("onNativeSecondSurfaceChanged: Failed to get ANativeWindow");
+        }
+    }
+    
+    if (g_secondWindow != nullptr)
+    {
+        ANativeWindow_setBuffersGeometry(g_secondWindow, width, height,
+                                          WINDOW_FORMAT_RGBA_8888);
+    }
+}
+
+JNIEXPORT void JNICALL
+Java_org_libsdl_app_SDLActivity_onNativeSecondSurfaceDestroyed(
+    JNIEnv* env, jclass clazz)
+{
+    LOGI("onNativeSecondSurfaceDestroyed");
+    
+    EGLDisplay display = eglGetCurrentDisplay();
+    
+    if (g_secondEGLSurface != EGL_NO_SURFACE && display != EGL_NO_DISPLAY) {
+        eglDestroySurface(display, g_secondEGLSurface);
+        LOGI("Second EGL surface destroyed");
+    }
+    g_secondEGLSurface = EGL_NO_SURFACE;
+    
+    if (g_secondWindow != nullptr) {
+        ANativeWindow_release(g_secondWindow);
+        g_secondWindow = nullptr;
+    }
+    
+    g_secondReady = false;
+    g_secondWidth = 0;
+    g_secondHeight = 0;
+}
+
+JNIEXPORT void JNICALL
+Java_org_libsdl_app_SDLActivity_nativeSetSecondScreenResolution(
+    JNIEnv* env, jclass clazz, jint width, jint height)
+{
+    LOGI("nativeSetSecondScreenResolution: %dx%d", width, height);
+    g_secondWidth = width;
+    g_secondHeight = height;
+    
+    if (g_secondWindow != nullptr) {
+        ANativeWindow_setBuffersGeometry(g_secondWindow, width, height,
+                                          WINDOW_FORMAT_RGBA_8888);
+    }
+}
+
+} // extern "C"
+
+// ============================================================
+// Public API for the STK render loop
+// ============================================================
+
+/**
+ * Check if the second display surface is ready for rendering.
+ * If the ANativeWindow exists but EGL surface hasn't been created yet,
+ * try to create it now (SDL's EGL context should be ready by the time
+ * the render loop calls this).
+ */
+bool dualScreenIsReady()
+{
+    // Retry EGL surface creation if window exists but surface doesn't
+    if (g_secondWindow != nullptr && g_secondEGLSurface == EGL_NO_SURFACE)
+    {
+        EGLDisplay display = eglGetCurrentDisplay();
+        EGLContext context = eglGetCurrentContext();
+        
+        if (display != EGL_NO_DISPLAY && context != EGL_NO_CONTEXT)
+        {
+            LOGI("dualScreenIsReady: retrying EGL surface creation (ctx ready)");
+            
+            // Get EGL config
+            EGLint numConfigs = 0;
+            EGLConfig configs[16];
+            EGLint configAttribs[] = {
+                EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
+                EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
+                EGL_RED_SIZE, 8,
+                EGL_GREEN_SIZE, 8,
+                EGL_BLUE_SIZE, 8,
+                EGL_ALPHA_SIZE, 8,
+                EGL_DEPTH_SIZE, 24,
+                EGL_STENCIL_SIZE, 8,
+                EGL_NONE
+            };
+            
+            eglChooseConfig(display, configAttribs, configs, 16, &numConfigs);
+            if (numConfigs > 0)
+            {
+                // Set buffer geometry
+                ANativeWindow_setBuffersGeometry(g_secondWindow, 
+                    g_secondWidth > 0 ? g_secondWidth : 1920,
+                    g_secondHeight > 0 ? g_secondHeight : 1280,
+                    WINDOW_FORMAT_RGBA_8888);
+                
+                EGLint surfaceAttribs[] = { EGL_NONE };
+                g_secondEGLSurface = eglCreateWindowSurface(display, configs[0],
+                                                              g_secondWindow, surfaceAttribs);
+                
+                if (g_secondEGLSurface != EGL_NO_SURFACE)
+                {
+                    LOGI("dualScreenIsReady: EGL surface created successfully (retry)");
+                    g_secondReady = true;
+                }
+                else
+                {
+                    EGLint error = eglGetError();
+                    LOGW("dualScreenIsReady: EGL surface creation failed: 0x%x", error);
+                }
+            }
+        }
+    }
+    
+    return g_secondReady && g_secondEGLSurface != EGL_NO_SURFACE;
+}
+
+/**
+ * Get second display dimensions.
+ */
+void dualScreenGetSize(int* width, int* height)
+{
+    if (width) *width = g_secondWidth;
+    if (height) *height = g_secondHeight;
+}
+
+/**
+ * Activate the second EGL surface for rendering.
+ * Call before rendering Camera 1's viewport.
+ * Returns true on success.
+ */
+bool dualScreenMakeCurrent()
+{
+    if (!g_secondReady || g_secondEGLSurface == EGL_NO_SURFACE) {
+        return false;
+    }
+    
+    EGLDisplay display = eglGetCurrentDisplay();
+    EGLContext context = eglGetCurrentContext();
+    
+    if (display == EGL_NO_DISPLAY || context == EGL_NO_CONTEXT) {
+        LOGE("dualScreenMakeCurrent: no EGL context");
+        return false;
+    }
+    
+    EGLBoolean result = eglMakeCurrent(display, g_secondEGLSurface, 
+                                        g_secondEGLSurface, context);
+    if (result == EGL_FALSE) {
+        EGLint error = eglGetError();
+        LOGE("dualScreenMakeCurrent failed: error 0x%x", error);
+        return false;
+    }
+    
+    return true;
+}
+
+/**
+ * Swap buffers on the second display.
+ * Call after rendering Camera 1's viewport.
+ */
+bool dualScreenSwapBuffers()
+{
+    if (!g_secondReady || g_secondEGLSurface == EGL_NO_SURFACE) {
+        return false;
+    }
+    
+    EGLDisplay display = eglGetCurrentDisplay();
+    if (display == EGL_NO_DISPLAY) {
+        return false;
+    }
+    
+    EGLBoolean result = eglSwapBuffers(display, g_secondEGLSurface);
+    if (result == EGL_FALSE) {
+        EGLint error = eglGetError();
+        LOGE("dualScreenSwapBuffers failed: error 0x%x", error);
+        return false;
+    }
+    
+    return true;
+}
+
+/**
+ * Restore the primary EGL surface (SDL's surface) for rendering.
+ */
+bool dualScreenRestorePrimary()
+{
+    return true;
+}
+
+// ============================================================
+// Frame mirror: copy Display 0 content to Display 2 (GLES2-compatible)
+// ============================================================
+
+static GLuint s_mirrorTex = 0;
+static int s_mirrorW = 0, s_mirrorH = 0;
+
+// Simple fullscreen quad shaders for GLES2
+static const char* s_quadVertSrc =
+    "attribute vec2 aPos;"
+    "varying vec2 vTexCoord;"
+    "void main() {"
+    "  vTexCoord = aPos * 0.5 + 0.5;"
+    "  gl_Position = vec4(aPos.x, aPos.y, 0.0, 1.0);"
+    "}";
+
+static const char* s_quadFragSrc =
+    "precision mediump float;"
+    "varying vec2 vTexCoord;"
+    "uniform sampler2D uTex;"
+    "void main() {"
+    "  gl_FragColor = texture2D(uTex, vTexCoord);"
+    "}";
+
+static GLuint s_quadProgram = 0;
+static GLuint s_quadVBuf = 0;
+
+static void ensureQuadProgram()
+{
+    if (s_quadProgram != 0) return;
+    
+    GLuint vs = glCreateShader(GL_VERTEX_SHADER);
+    glShaderSource(vs, 1, &s_quadVertSrc, NULL);
+    glCompileShader(vs);
+    
+    GLuint fs = glCreateShader(GL_FRAGMENT_SHADER);
+    glShaderSource(fs, 1, &s_quadFragSrc, NULL);
+    glCompileShader(fs);
+    
+    s_quadProgram = glCreateProgram();
+    glAttachShader(s_quadProgram, vs);
+    glAttachShader(s_quadProgram, fs);
+    glLinkProgram(s_quadProgram);
+    
+    glDeleteShader(vs);
+    glDeleteShader(fs);
+    
+    // Fullscreen quad vertices: two triangles covering [-1,1]
+    float quadVerts[] = {
+        -1.0f, -1.0f,  1.0f, -1.0f,  -1.0f,  1.0f,
+        -1.0f,  1.0f,  1.0f, -1.0f,   1.0f,  1.0f
+    };
+    glGenBuffers(1, &s_quadVBuf);
+    glBindBuffer(GL_ARRAY_BUFFER, s_quadVBuf);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(quadVerts), quadVerts, GL_STATIC_DRAW);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    
+    LOGI("Mirror quad shader compiled");
+}
+
+/**
+ * Call BEFORE endScene on Display 0.
+ * Captures Display 0's current backbuffer to a texture.
+ */
+void dualScreenMirrorCapture(int w, int h)
+{
+    // Ensure EGL surface is created (retry if SDL context is now ready)
+    if (!g_secondReady) {
+        dualScreenIsReady();  // retries EGL creation if possible
+    }
+    
+    if (!g_secondReady || g_secondEGLSurface == EGL_NO_SURFACE)
+        return;
+    
+    // Lazy-create mirror texture
+    if (s_mirrorTex == 0 || s_mirrorW != w || s_mirrorH != h)
+    {
+        if (s_mirrorTex != 0)
+            glDeleteTextures(1, &s_mirrorTex);
+        
+        glGenTextures(1, &s_mirrorTex);
+        glBindTexture(GL_TEXTURE_2D, s_mirrorTex);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        
+        s_mirrorW = w;
+        s_mirrorH = h;
+        LOGI("Mirror texture created: %dx%d", w, h);
+    }
+    
+    // Capture Display 0's backbuffer → mirror texture
+    glBindTexture(GL_TEXTURE_2D, s_mirrorTex);
+    glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, w, h);
+    glBindTexture(GL_TEXTURE_2D, 0);
+}
+
+/**
+ * Call AFTER endScene on Display 0.
+ * Draws the captured mirror texture as a fullscreen quad on Display 2.
+ */
+void dualScreenMirrorPresent()
+{
+    if (!g_secondReady) {
+        dualScreenIsReady();
+    }
+    
+    if (!g_secondReady || s_mirrorTex == 0)
+        return;
+    
+    if (!dualScreenMakeCurrent())
+        return;
+    
+    ensureQuadProgram();
+    
+    // Save state
+    GLint oldProgram = 0;
+    glGetIntegerv(GL_CURRENT_PROGRAM, &oldProgram);
+    
+    glUseProgram(s_quadProgram);
+    
+    // Bind mirror texture
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, s_mirrorTex);
+    glUniform1i(glGetUniformLocation(s_quadProgram, "uTex"), 0);
+    
+    // Draw fullscreen quad
+    glBindBuffer(GL_ARRAY_BUFFER, s_quadVBuf);
+    GLint aPos = glGetAttribLocation(s_quadProgram, "aPos");
+    glVertexAttribPointer(aPos, 2, GL_FLOAT, GL_FALSE, 0, 0);
+    glEnableVertexAttribArray(aPos);
+    
+    glViewport(0, 0, s_mirrorW, s_mirrorH);
+    glScissor(0, 0, s_mirrorW, s_mirrorH);
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_BLEND);
+    
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    
+    glDisableVertexAttribArray(aPos);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    
+    // Restore state
+    glUseProgram(oldProgram);
+    
+    dualScreenSwapBuffers();
+    // SDL will re-bind Display 0's surface on next beginScene
+}

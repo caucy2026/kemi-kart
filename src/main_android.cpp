@@ -57,10 +57,15 @@ void registering_natives()
     assert(env);
     const char* stkactivity_class = ANDROID_PACKAGE_CLASS_NAME "/SuperTuxKartActivity";
     jclass clazz = env->FindClass(stkactivity_class);
+    if (env->ExceptionCheck())
+    {
+        env->ExceptionClear();
+        Log::error("MainAndroid", "Failed to find class %s.", stkactivity_class);
+        return;
+    }
     if (clazz == NULL)
     {
-        Log::error("MainAndroid", "Failed to find class %s.",
-            stkactivity_class);
+        Log::error("MainAndroid", "Failed to find class %s.", stkactivity_class);
         return;
     }
     if (env->RegisterNatives(
@@ -78,10 +83,15 @@ void registering_natives()
     };
     const char* stkeditbox_class = ANDROID_PACKAGE_CLASS_NAME "/STKEditText";
     clazz = env->FindClass(stkeditbox_class);
+    if (env->ExceptionCheck())
+    {
+        env->ExceptionClear();
+        Log::error("MainAndroid", "Failed to find class %s.", stkeditbox_class);
+        return;
+    }
     if (clazz == NULL)
     {
-        Log::error("MainAndroid", "Failed to find class %s.",
-            stkeditbox_class);
+        Log::error("MainAndroid", "Failed to find class %s.", stkeditbox_class);
         return;
     }
     if (env->RegisterNatives(
