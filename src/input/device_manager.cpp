@@ -357,6 +357,9 @@ InputDevice *DeviceManager::mapGamepadInput(Input::InputType type,
     return gPad;
 }   // mapGamepadInput
 
+// Dual-screen mode: keep multitouch assigned to Player 0
+extern bool g_dual_screen_mode;
+
 //-----------------------------------------------------------------------------
 
 void DeviceManager::updateMultitouchDevice()
@@ -369,6 +372,18 @@ void DeviceManager::updateMultitouchDevice()
         // in single-player mode, assign the gamepad as needed
         if (m_multitouch_device->getPlayer() != m_single_player)
             m_multitouch_device->setPlayer(m_single_player);
+    }
+    else if (g_dual_screen_mode)
+    {
+        // Dual-screen: keep multitouch on Player 0 for Display 0 touch
+        // Player 2 is controlled via JNI direct injection (Display 2)
+        if (m_multitouch_device->getPlayer() == NULL)
+        {
+            StateManager::ActivePlayer *ap =
+                StateManager::get()->getActivePlayer(0);
+            if (ap != NULL)
+                m_multitouch_device->setPlayer(ap);
+        }
     }
     else
     {

@@ -581,9 +581,15 @@ void setupRaceStart()
  * Skips all menus: sets up P1 (Display 0) and P2 (Display 2) with
  * default karts and a default track, then starts the race immediately.
  */
+
+// Global flag: signals dual-screen mode to DeviceManager so it keeps
+// the multitouch device assigned to Player 0 (Display 0).
+bool g_dual_screen_mode = false;
+
 static void startDualScreenRace()
 {
     Log::info("main", "Starting dual-screen 2-player race...");
+    g_dual_screen_mode = true;
     
     // Ensure there are at least 2 player profiles
     PlayerManager::get()->enforceCurrentPlayer();
@@ -619,6 +625,11 @@ static void startDualScreenRace()
         PlayerManager::get()->getPlayer(0), dev0);
     StateManager::get()->createActivePlayer(
         PlayerManager::get()->getPlayer(1), dev1);
+    
+    // Dual-screen mode: force-enable virtual steering wheel GUI
+    UserConfigParams::m_multitouch_active = 2;   // 2 = forced on
+    UserConfigParams::m_multitouch_draw_gui = true;
+    UserConfigParams::m_multitouch_controls = MULTITOUCH_CONTROLS_STEERING_WHEEL;
     
     // Set up RaceManager for 2 local players
     RaceManager::get()->setNumPlayers(2);
@@ -674,24 +685,34 @@ static void startDualScreenRace()
 
 /**
  * Apply Display 2 touch input directly to Player 2's kart.
- * Called from the render loop via dualScreenApplyTouch().
+ * Called from the render loop via dualScreenApplyTouch() every frame.
  * steer: -1.0 (full left) to 1.0 (full right)
  * accel: 0.0 (none) to 1.0 (full accelerate)
+ * item_action: PlayerAction (PA_NITRO, PA_FIRE, PA_DRIFT, PA_LOOK_BACK) or 0
+ * item_value: Input::MAX_VALUE when pressed, 0 when released
+ *
+ * IMPORTANT: item actions must send value=0 on release (matching
+ * MultitouchDevice::updateControls line 632-633). We track the previous
+ * action across frames so we can release it when the touch zone changes.
  */
-void dualScreenControlPlayer2(float steer, float accel)
+void dualScreenControlPlayer2(float steer, float accel,
+                               int item_action, int item_value)
 {
     World* world = World::getWorld();
     if (!world) return;
     
-    // Player 1 is index 1 (Player 0 = index 0)
     AbstractKart* kart = world->getKart(1);
     if (!kart) return;
     
     Controller* controller = kart->getController();
     if (!controller) return;
     
-    // Apply steering
+    // Track previous item action to send release (value=0) on change
+    static int s_prev_item_action = 0;
+    
     const int MAX_VAL = Input::MAX_VALUE;
+    
+    // ── Steering ──
     if (steer < -0.1f) {
         controller->action(PA_STEER_LEFT, (int)(-steer * MAX_VAL));
         controller->action(PA_STEER_RIGHT, 0);
@@ -703,14 +724,30 @@ void dualScreenControlPlayer2(float steer, float accel)
         controller->action(PA_STEER_RIGHT, 0);
     }
     
-    // Apply acceleration
+    // ── Acceleration ──
     if (accel > 0.1f) {
         controller->action(PA_ACCEL, (int)(accel * MAX_VAL));
         controller->action(PA_BRAKE, 0);
     } else {
-        controller->action(PA_ACCEL, MAX_VAL / 2);
+        controller->action(PA_ACCEL, 0);
         controller->action(PA_BRAKE, 0);
     }
+    
+    // ── Item actions (FIRE / NITRO / DRIFT / LOOK_BACK) ──
+    // Must release previous action when zone changes or touch ends,
+    // matching MultitouchDevice::updateControls pattern.
+    if (s_prev_item_action != 0 && s_prev_item_action != item_action)
+    {
+        // Release the previous action
+        controller->action((PlayerAction)s_prev_item_action, 0);
+    }
+    
+    if (item_action != 0)
+    {
+        controller->action((PlayerAction)item_action, item_value);
+    }
+    
+    s_prev_item_action = item_action;
 }
 #endif
 // ======================================================================

@@ -19,6 +19,9 @@
 #include <GLES2/gl2.h>
 #include <android/log.h>
 
+// STK input constants (PA_NITRO, PA_FIRE, PA_DRIFT, Input::MAX_VALUE)
+#include "input/input.hpp"
+
 #define LOG_TAG "STK_DualScreen"
 #define LOGV(...) __android_log_print(ANDROID_LOG_VERBOSE, LOG_TAG, __VA_ARGS__)
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
@@ -175,29 +178,134 @@ Java_org_libsdl_app_SDLActivity_nativeTouchDisplay2(
 /**
  * Apply Display 2 touch state to Player 1's kart.
  * Called from the render/game loop thread each frame.
+ *
+ * Uses the ACTUAL Display 2 surface dimensions (g_secondWidth/g_secondHeight)
+ * for coordinate mapping, NOT the primary display size. This is critical
+ * because Display 2 may have different dimensions than Display 0.
  */
 void dualScreenApplyTouch()
 {
-    if (!g_touch2_active.load(std::memory_order_relaxed))
-        return;
-    
-    float x = g_touch2_x.load(std::memory_order_relaxed);
-    float y = g_touch2_y.load(std::memory_order_relaxed);
-    
-    // Simple virtual steering zones
     float steer = 0.0f;
     float accel = 0.0f;
+    int   item_action = 0;
+    int   item_value  = 0;
     
-    if (x < 0.35f)
-        steer = -1.0f + (x / 0.35f);
-    else if (x > 0.65f)
-        steer = (x - 0.65f) / 0.35f;
+    static int s_last_logged_action = -1;
+    static float s_last_logged_steer = 0.0f;
     
-    if (y < 0.3f)
-        accel = 1.0f - (y / 0.3f);
+    // Get actual Display 2 surface size — critical for correct coordinate mapping
+    float disp_w = (float)(g_secondWidth  > 0 ? g_secondWidth  : 1920);
+    float disp_h = (float)(g_secondHeight > 0 ? g_secondHeight : 1280);
+    float aspect = disp_w / disp_h;
     
-    extern void dualScreenControlPlayer2(float steer, float accel);
-    dualScreenControlPlayer2(steer, accel);
+    if (g_touch2_active.load(std::memory_order_relaxed))
+    {
+        float x = g_touch2_x.load(std::memory_order_relaxed);
+        float y = g_touch2_y.load(std::memory_order_relaxed);
+        
+        // ── Compute button geometry dynamically from display size ──
+        // Matches RaceGUIMultitouch::createRaceGUI() exactly.
+        // All sizes are normalised by display height; converted to width-norm
+        // via the actual aspect ratio.
+        const float scale = 1.2f;
+        const float btn_h     = 0.125f * scale;     // small button height
+        const float margin_h  = 0.075f * scale;     // margin
+        const float col_h     = btn_h + margin_h;   // column spacing (height-norm)
+        const float wheel_h   = 0.35f * scale;      // steering wheel size
+        const float wheel_m_h = 0.6f * margin_h;    // wheel margin
+        
+        // Width-normalised (divide by aspect)
+        const float col_w     = col_h / aspect;
+        const float btn_w     = btn_h / aspect;
+        const float wheel_w   = wheel_h / aspect;
+        const float wheel_m_w = wheel_m_h / aspect;
+        
+        // Right-side button columns (x positions, 0..1)
+        const float first_col_x  = 1.0f - 2.0f * col_w;
+        const float second_col_x = 1.0f - 1.0f * col_w;
+        
+        // Right-side button rows (y positions, 0..1)
+        const float row1_y = 1.0f - 2.0f * col_h;  // upper row top
+        const float row2_y = 1.0f - 1.0f * col_h;  // lower row top
+        const float row_divider = (row1_y + row2_y + btn_h) * 0.5f;
+        
+        // Steering wheel geometry
+        const float wheel_x = wheel_m_w;
+        const float wheel_y = 1.0f - wheel_m_h - wheel_h;
+        const float wheel_cx = wheel_x + wheel_w * 0.5f;
+        const float wheel_cy = wheel_y + wheel_h * 0.5f;
+        const float wheel_hw = wheel_w * 0.5f;
+        const float wheel_hh = wheel_h * 0.5f;
+        
+        // Zone boundaries
+        const float col_divider = (first_col_x + second_col_x + btn_w) * 0.5f;
+        const float right_edge  = first_col_x - margin_h / aspect * 0.5f;
+        
+        // ── Zone detection ──
+        if (x > right_edge)
+        {
+            // Right-side item buttons
+            if (y < row_divider)
+            {
+                if (x > col_divider)
+                    item_action = PA_NITRO;       // outer-upper
+                else
+                    item_action = PA_FIRE;         // inner-upper
+            }
+            else
+            {
+                if (x > col_divider)
+                    item_action = PA_DRIFT;        // outer-lower (SKIDDING)
+                else
+                    item_action = PA_LOOK_BACK;    // inner-lower
+            }
+            if (item_action != 0)
+                item_value = Input::MAX_VALUE;
+        }
+        else
+        {
+            // ── Steering wheel zone ──
+            float local_x = (x - wheel_cx) / wheel_hw;
+            float local_y = (wheel_cy - y) / wheel_hh;
+            
+            if (local_x < -1.0f) local_x = -1.0f;
+            if (local_x >  1.0f) local_x =  1.0f;
+            if (local_y < -1.0f) local_y = -1.0f;
+            if (local_y >  1.0f) local_y =  1.0f;
+            
+            if (local_x < -0.15f)
+                steer = (local_x + 0.15f) / 0.85f;
+            else if (local_x > 0.15f)
+                steer = (local_x - 0.15f) / 0.85f;
+            
+            if (local_y > 0.1f)
+                accel = local_y;
+        }
+    }
+    // else: no touch — steer=0, accel=0, item_action=0, item_value=0
+    
+    // Debug: log zone transitions and significant steering changes
+    bool log_it = (item_action != s_last_logged_action);
+    if (!log_it && (steer - s_last_logged_steer > 0.2f || s_last_logged_steer - steer > 0.2f))
+        log_it = true;
+    
+    if (log_it)
+    {
+        const char* names[] = {"none", "FIRE", "NITRO", "DRIFT", "LOOK_BACK"};
+        int idx = 0;
+        if (item_action == PA_FIRE) idx = 1;
+        else if (item_action == PA_NITRO) idx = 2;
+        else if (item_action == PA_DRIFT) idx = 3;
+        else if (item_action == PA_LOOK_BACK) idx = 4;
+        LOGI("dualScreenApplyTouch: zone=%s steer=%.2f accel=%.2f (disp=%.0fx%.0f aspect=%.2f)",
+             names[idx], steer, accel, disp_w, disp_h, aspect);
+        s_last_logged_action = item_action;
+        s_last_logged_steer = steer;
+    }
+    
+    extern void dualScreenControlPlayer2(float steer, float accel,
+                                          int item_action, int item_value);
+    dualScreenControlPlayer2(steer, accel, item_action, item_value);
 }
 
 // ============================================================

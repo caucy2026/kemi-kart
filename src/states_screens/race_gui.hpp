@@ -142,8 +142,16 @@ private:
                                          int gauge_height, core::vector2df offset);
 
     /** Display items that are shown once only (for all karts). */
+
+public:
+
+    /** MiniMap / navigation — also used by dual-screen Display 2 HUD. */
     void drawGlobalMiniMap     ();
+    /** Race timer — also used by dual-screen Display 2 HUD. */
     void drawGlobalTimer       ();
+
+private:
+
     void drawLiveDifference    ();
 
 public:

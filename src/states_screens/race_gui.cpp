@@ -82,8 +82,9 @@ RaceGUI::RaceGUI()
                                irr_driver->getDevice()->supportsTouchDevice()) ||
                                UserConfigParams::m_multitouch_active > 1;
     
+    extern bool g_dual_screen_mode;
     if (multitouch_enabled && UserConfigParams::m_multitouch_draw_gui &&
-        RaceManager::get()->getNumLocalPlayers() == 1)
+        (RaceManager::get()->getNumLocalPlayers() == 1 || g_dual_screen_mode))
     {
         m_multitouch_gui = new RaceGUIMultitouch(this);
     }

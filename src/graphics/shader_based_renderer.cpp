@@ -42,6 +42,9 @@
 #include "modes/world.hpp"
 #include "physics/physics.hpp"
 #include "states_screens/race_gui_base.hpp"
+#include "states_screens/race_gui.hpp"
+#include "states_screens/race_gui_multitouch.hpp"
+#include "font/font_drawer.hpp"
 #include "tracks/track.hpp"
 #include "utils/profiler.hpp"
 #include "utils/string_utils.hpp"
@@ -802,13 +805,41 @@ void ShaderBasedRenderer::render(float dt, bool is_loading)
         // Save projection-view matrix for the next frame
         camera->setPreviousPVMatrix(irr_driver->getProjViewMatrix());
 
-        // Dual-screen: render Player 1's GUI on Display 2, then swap & restore
+        // Dual-screen: render Player 1's full HUD on Display 2, then swap & restore
         if (dual_active && cam == 1)
         {
-            // Render Player 1's HUD (steering wheel, speed, rank, etc.) on Display 2
-            // before swapping — this gives the "network client" feel where
-            // each display shows its own player's full HUD
+            World *world = World::getWorld();
+            
+            // 1. Per-player HUD: steering wheel, speed, powerup icons, messages
             rg->renderPlayerView(camera, dt);
+            
+            // 2. Global HUD: minimap, timer, player ranking list (same as Display 0)
+            RaceGUI* gui = dynamic_cast<RaceGUI*>(rg);
+            RaceGUIMultitouch* mtgui = rg->getMultitouchGUI();
+            
+            if (gui != nullptr)
+            {
+                // MiniMap — drawn before isRacePhase check (matches renderGlobal)
+                gui->drawGlobalMiniMap();
+                
+                if (world != nullptr && world->isRacePhase())
+                {
+                    FontDrawer::startBatching();
+                    gui->drawGlobalTimer();
+                    
+                    if (mtgui != nullptr)
+                        rg->drawGlobalPlayerIcons((int)mtgui->getHeight());
+                    else
+                        rg->drawGlobalPlayerIcons(0);
+                    
+                    FontDrawer::endBatching();
+                }
+            }
+            else if (mtgui != nullptr)
+            {
+                // Fallback: at least draw player icons
+                rg->drawGlobalPlayerIcons((int)mtgui->getHeight());
+            }
             
             dualScreenSwapBuffers();
             if (!dualScreenRestorePrimary())

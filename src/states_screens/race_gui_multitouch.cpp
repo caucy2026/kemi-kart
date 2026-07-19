@@ -381,22 +381,26 @@ void RaceGUIMultitouch::draw(const AbstractKart* kart,
             video::SColor color((unsigned)-1);
             video::ITexture* btn_texture = m_steering_wheel_tex;
             core::rect<s32> coords(pos_zero, btn_texture->getSize());
+            
+            // Use the actual kart's steering for visual feedback,
+            // so each player's wheel shows independent rotation.
+            // (button->axis_x is shared across all players; kart steer is per-player.)
+            float wheel_rotation = 0.0f;
+            if (kart)
+                wheel_rotation = kart->getControls().getSteer();
             draw2DImageRotationColor(btn_texture, btn_pos, coords, NULL,
-                (button->axis_y >= 0 ? -1 : 1) * button->axis_x, color);
-            AbstractKart* k = NULL;
-            Camera* c = Camera::getActiveCamera();
-            if (c)
-                k = c->getKart();
-            if (k)
+                wheel_rotation, color);
+            
+            if (kart)
             {
-                float accel = k->getControls().getAccel();
+                float accel = kart->getControls().getAccel();
                 core::rect<s32> mask_coords(pos_zero, m_steering_wheel_tex_mask_up->getSize());
                 color.setAlpha(core::clamp((int)(accel >= 0.0f ? accel * 128.0f : 0), 0, 255));
                 draw2DImageRotationColor(m_steering_wheel_tex_mask_up, btn_pos, mask_coords, NULL,
-                    (button->axis_y >= 0 ? -1 : 1) * button->axis_x, color);
-                color.setAlpha(k->getControls().getBrake() ? 128 : 0);
+                    wheel_rotation, color);
+                color.setAlpha(kart->getControls().getBrake() ? 128 : 0);
                 draw2DImageRotationColor(m_steering_wheel_tex_mask_down, btn_pos, mask_coords, NULL,
-                    (button->axis_y >= 0 ? -1 : 1) * button->axis_x, color);
+                    wheel_rotation, color);
             }
             // float x = (float)(button->x) + (float)(button->width) / 2.0f *
             //                                          (button->axis_x + 1.0f);
@@ -415,21 +419,17 @@ void RaceGUIMultitouch::draw(const AbstractKart* kart,
             video::ITexture* btn_texture = m_accelerator_tex;
             core::rect<s32> coords(pos_zero, btn_texture->getSize());
             draw2DImage(btn_texture, btn_pos, coords, NULL, NULL, true);
-            AbstractKart* k = NULL;
-            Camera* c = Camera::getActiveCamera();
-            if (c)
-                k = c->getKart();
-            if (k)
+            if (kart)
             {
                 float upper_corner;
-                if (k->getControls().getBrake())
+                if (kart->getControls().getBrake())
                 {
                     upper_corner = button->y + button->height - button->width / 2;
                 }
                 else
                 {
                     upper_corner = button->y + button->height / 2 - button->width / 4;
-                    upper_corner -= (int)((float)(button->height / 2 - button->width / 4) * (k->getControls().getAccel()));
+                    upper_corner -= (int)((float)(button->height / 2 - button->width / 4) * (kart->getControls().getAccel()));
                 }
                 core::rect<s32> handle_pos(button->x, upper_corner, button->x + button->width / 2,
                                            upper_corner + button->width / 2);
@@ -512,7 +512,18 @@ void RaceGUIMultitouch::draw(const AbstractKart* kart,
 
             if (btn_texture)
             {
-                video::ITexture* btn_bg = (can_be_pressed && button->pressed) ?
+                // For Player 1 (Display 2 / dual-screen):
+                // Item button press state comes from the shared MultitouchDevice
+                // which processes Display 0 touches only. Display 2 input goes
+                // through JNI, so the shared button->pressed is irrelevant.
+                // However, BUTTON_STEERING visual feedback uses kart steer
+                // (fixed above), so the wheel rotation IS independent.
+                // We only suppress the item-button background highlight for P1
+                // to prevent Display 0 touches from lighting up Display 2 buttons.
+                bool is_player1 = (kart != NULL && kart->getWorldKartId() == 1);
+                bool show_pressed = (!is_player1 && can_be_pressed && button->pressed);
+                
+                video::ITexture* btn_bg = show_pressed ?
                                                         m_bg_button_focus_tex :
                                                         m_bg_button_tex;
                 core::rect<s32> coords_bg(pos_zero, btn_bg->getSize());
