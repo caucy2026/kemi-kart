@@ -351,6 +351,9 @@ struct SEvent
 	//! Any kind of mouse event.
 	struct SMouseInput
 	{
+		//! Touch device ID. 0 = primary display, 2 = secondary display (dual-screen).
+		size_t DeviceID;
+
 		//! X position of mouse cursor
 		s32 X;
 

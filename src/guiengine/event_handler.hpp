@@ -80,8 +80,8 @@ namespace GUIEngine
           */
         void sendEventToUser(Widget* widget, std::string& name, const int playerID);
 
-        /** Last position of the mouse cursor */
-        irr::core::vector2di     m_mouse_pos;
+        /** Last position of the mouse cursor, per display [0]=D0 [1]=D2 */
+        irr::core::vector2di     m_mouse_pos[2];
 
     public:
 
@@ -106,8 +106,8 @@ namespace GUIEngine
 
         void sendNavigationEvent(const NavigationDirection nav, const int playerID);
 
-        /** Get the mouse position */
-        const irr::core::vector2di& getMousePos() const { return m_mouse_pos; }
+        /** Get the mouse position for a given device (0=Display0, 2=Display2) */
+        const irr::core::vector2di& getMousePos(size_t dev=0) const { return m_mouse_pos[dev == 2 ? 1 : 0]; }
 
         /** singleton access */
         static EventHandler* get();

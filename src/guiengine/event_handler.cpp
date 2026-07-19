@@ -23,6 +23,7 @@
 #include "config/user_config.hpp"
 #include "graphics/irr_driver.hpp"
 #include "graphics/stk_tex_manager.hpp"
+#include <IrrlichtDevice.h>
 #include "guiengine/abstract_state_manager.hpp"
 #include "guiengine/engine.hpp"
 #include "guiengine/modaldialog.hpp"
@@ -166,6 +167,40 @@ bool EventHandler::OnEvent (const SEvent &event)
              event.EventType != EET_KEY_INPUT_EVENT && event.EventType != EET_JOYSTICK_INPUT_EVENT &&
              event.EventType != EET_LOG_TEXT_EVENT)
     {
+        // Dual-screen: convert touch to mouse for menu GUI interaction.
+        // Each display has its own cursor, tracked by DeviceID.
+        if (event.EventType == EET_TOUCH_INPUT_EVENT)
+        {
+            SEvent mouseEvent;
+            mouseEvent.EventType = EET_MOUSE_INPUT_EVENT;
+            mouseEvent.MouseInput.DeviceID = event.TouchInput.DeviceID;
+            mouseEvent.MouseInput.X = event.TouchInput.X;
+            mouseEvent.MouseInput.Y = event.TouchInput.Y;
+            mouseEvent.MouseInput.Control = false;
+            mouseEvent.MouseInput.Shift = false;
+            
+            switch (event.TouchInput.Event)
+            {
+            case ETIE_PRESSED_DOWN:
+                mouseEvent.MouseInput.Event = EMIE_LMOUSE_PRESSED_DOWN;
+                mouseEvent.MouseInput.ButtonStates = EMBSM_LEFT;
+                break;
+            case ETIE_LEFT_UP:
+                mouseEvent.MouseInput.Event = EMIE_LMOUSE_LEFT_UP;
+                mouseEvent.MouseInput.ButtonStates = 0;
+                break;
+            case ETIE_MOVED:
+                mouseEvent.MouseInput.Event = EMIE_MOUSE_MOVED;
+                mouseEvent.MouseInput.ButtonStates = EMBSM_LEFT;
+                break;
+            default:
+                return false;
+            }
+            
+            // Route to GUI with DeviceID preserved
+            irr_driver->getDevice()->postEventFromUser(mouseEvent);
+            return true; // EVENT_BLOCK — handled
+        }
         return false; // EVENT_LET
     }
     else if (event.EventType == EET_MOUSE_INPUT_EVENT ||
@@ -175,12 +210,13 @@ bool EventHandler::OnEvent (const SEvent &event)
              event.EventType == EET_ACCELEROMETER_EVENT ||
              event.EventType == EET_GYROSCOPE_EVENT)
     {
-        // Remember the mouse position
+        // Remember the mouse position per device
         if (event.EventType == EET_MOUSE_INPUT_EVENT &&
             event.MouseInput.Event == EMIE_MOUSE_MOVED)
         {
-            m_mouse_pos.X = event.MouseInput.X;
-            m_mouse_pos.Y = event.MouseInput.Y;
+            size_t didx = (event.MouseInput.DeviceID == 2) ? 1 : 0;
+            m_mouse_pos[didx].X = event.MouseInput.X;
+            m_mouse_pos[didx].Y = event.MouseInput.Y;
         }
 
         // Notify the profiler of mouse events
@@ -188,7 +224,7 @@ bool EventHandler::OnEvent (const SEvent &event)
            event.EventType == EET_MOUSE_INPUT_EVENT &&
            event.MouseInput.Event == EMIE_LMOUSE_LEFT_UP)
         {
-            profiler.onClick(m_mouse_pos);
+            profiler.onClick(m_mouse_pos[0]);
         }
 
         if (event.EventType == EET_MOUSE_INPUT_EVENT &&
