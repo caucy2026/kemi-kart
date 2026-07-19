@@ -237,6 +237,11 @@ public class SDLSurface extends SurfaceView implements SurfaceHolder.Callback,
         int i = -1;
         float x,y,p;
 
+        // Dual-screen: use display ID as fixed touch device ID so SDL/STK
+        // can deterministically route Display 0 → P0, Display 2 → P1.
+        // Android's getDeviceId() is arbitrary; mDisplayId is fixed.
+        int routedDevId = mDisplayId;
+
         /*
          * Prevent id to be -1, since it's used in SDL internal for synthetic events
          * Appears when using Android emulator, eg:
@@ -276,7 +281,7 @@ public class SDLSurface extends SurfaceView implements SurfaceHolder.Callback,
                         y = event.getY(i) / mHeight;
                         p = event.getPressure(i);
                         if (p > 1.0f) p = 1.0f;
-                        SDLActivity.onNativeTouch(touchDevId, pointerFingerId, action, x, y, p);
+                        SDLActivity.onNativeTouch(routedDevId, pointerFingerId, action, x, y, p);
                     }
                     break;
 
@@ -297,7 +302,7 @@ public class SDLSurface extends SurfaceView implements SurfaceHolder.Callback,
                     y = event.getY(i) / mHeight;
                     p = event.getPressure(i);
                     if (p > 1.0f) p = 1.0f;
-                    SDLActivity.onNativeTouch(touchDevId, pointerFingerId, action, x, y, p);
+                    SDLActivity.onNativeTouch(routedDevId, pointerFingerId, action, x, y, p);
                     break;
 
                 case MotionEvent.ACTION_CANCEL:
@@ -307,7 +312,7 @@ public class SDLSurface extends SurfaceView implements SurfaceHolder.Callback,
                         y = event.getY(i) / mHeight;
                         p = event.getPressure(i);
                         if (p > 1.0f) p = 1.0f;
-                        SDLActivity.onNativeTouch(touchDevId, pointerFingerId, MotionEvent.ACTION_UP, x, y, p);
+                        SDLActivity.onNativeTouch(routedDevId, pointerFingerId, MotionEvent.ACTION_UP, x, y, p);
                     }
                     break;
 

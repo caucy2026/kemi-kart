@@ -1,5 +1,56 @@
 # STK 双屏异显 — 版本记录
 
+## v1.1.0 (2026-07-19) — 统一触控架构 & 两屏独立操控
+
+### 架构变更（重大重构）
+- **统一触控链路**：副屏触摸改走 SDL 标准路径（删除 ~250 行手工 JNI 触控代码）
+- **SDL 双设备检测**：`SDLSurface.java` 用 `mDisplayId` 作为固定 `routedDevId`（D0=0, D2=2）
+- **Irrlicht 事件扩展**：`STouchInput` 新增 `DeviceID` 字段，`CIrrDeviceSDL` 传递 `SDL_event.tfinger.touchId`
+- **STK 设备分流**：`InputManager` 按 `DeviceID` 路由到独立 `MultitouchDevice`
+- **双 MultitouchDevice**：`DeviceManager` 新增 `m_multitouch_device_2` → Player 1
+- **双 GUI 状态**：`RaceGUIMultitouch::draw()` 按 `kart->getWorldKartId()` 选择对应 device，按钮自动克隆
+
+### 功能
+- **两屏完全独立操控**：Display 0 → P0, Display 2 → P1，方向盘/道具/后视镜各自独立
+- **视觉完全独立**：每个 MultitouchDevice 有独立 `button->pressed`/`axis_x`/`axis_y`
+- **双屏完整 HUD**：minimap、timer、player list、player icons 全部渲染到两屏
+- **方向盘按角色独立**：改用 `kart->getControls().getSteer()` 渲染旋转
+
+### 修改
+| 类型 | 文件 | 说明 |
+|------|------|------|
+| 新增 | `IEventReceiver.h:DeviceID` | `STouchInput` 加设备 ID 字段 |
+| 修改 | `CIrrDeviceSDL.cpp` | 传递 `touchId` 到 Irrlicht 事件 |
+| 修改 | `input_manager.cpp` | 按 DeviceID 路由到不同 MultitouchDevice |
+| 修改 | `device_manager.cpp/.hpp` | 新增 `m_multitouch_device_2` + 生命周期 |
+| 修改 | `race_gui_multitouch.cpp/.hpp` | draw() 按 kart 选 device；按钮克隆 |
+| 修改 | `race_gui.cpp` | drawGlobalMiniMap/drawGlobalTimer 改 public |
+| 修改 | `shader_based_renderer.cpp` | 副屏渲染 minimap+timer+icons |
+| 修改 | `SDLSurface.java` | routedDevId=mDisplayId，删除 mDisplayId==2 分支 |
+| 删除 | `android_native_dual_screen.cpp` | nativeTouchDisplay2/g_touch2_*/dualScreenApplyTouch (~150行) |
+| 删除 | `main.cpp` | dualScreenControlPlayer2 (~60行) |
+| 删除 | `SDLActivity.java` | nativeTouchDisplay2 声明 |
+| 删除 | `race_gui_multitouch.cpp` | P1 按钮高亮隔离（不再需要） |
+
+### 踩坑记录
+| 问题 | 根因 | 解决 |
+|------|------|------|
+| 副屏方向盘不显示 | `getNumLocalPlayers()==1` 限制 | `race_gui.cpp` 增加 `\|\| g_dual_screen_mode` |
+| 方向盘视觉同步 | 共享 `button->axis_x` | 改用 `kart->getSteer()` |
+| 副屏道具按钮无效 | JNI 触控坐标硬编码 1920x1280，实为 1205 | 动态读取 `g_secondWidth/Height` |
+| 松手不释放(LOOK_BACK卡住) | 只发 MAX_VALUE 不发 0 | `s_prev_item_action` 追踪，自动释放 |
+| 变量遮蔽导致操控无效 | 内层重声明 `float steer/accel` | 删除内层声明 |
+| 角色反转(副屏控主屏) | device ID "先到先得"随机映射 | `routedDevId=mDisplayId` 固定映射 |
+| **根本架构缺陷** | 两套触控路径(SDL vs JNI)永远不一致 | 统一到 SDL→Irrlicht→STK 标准路径 |
+
+### 经验教训
+1. **不要手工复刻框架逻辑**：MultitouchDevice 的 press/release/zone 检测极其复杂，手工 JNI 版本 100% 会有 bug
+2. **硬编码坐标必然出错**：不同分辨率的显示屏需要动态计算
+3. **变量遮蔽是 C++ 经典陷阱**：外层变量被内层同名声明覆盖
+4. **统一代码路径 > 重复实现**：删 250 行手工代码，换 4 行核心改动，收益巨大
+
+---
+
 ## v1.0.0 (2026-07-19) — 双屏对战首版
 
 ### 功能
