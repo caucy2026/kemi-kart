@@ -638,36 +638,47 @@ static void startDualScreenRace()
     RaceManager::get()->setMinorMode(RaceManager::MINOR_MODE_NORMAL_RACE);
     RaceManager::get()->setDifficulty(RaceManager::DIFFICULTY_MEDIUM);
     
-    // Set default karts for both players
-    // Use first available karts (different ones if possible)
+    // ── Kart selection: cycle through available karts each game ──
+    static int s_kart_offset = 0;
     unsigned kart_count = kart_properties_manager->getNumberOfKarts();
     std::string kart0 = "tux";
-    std::string kart1 = "tux";
-    if (kart_count > 0)
+    std::string kart1 = "gavroche";
+    if (kart_count >= 2)
     {
-        const KartProperties* kp0 = kart_properties_manager->getKartById(0);
+        int idx0 = s_kart_offset % kart_count;
+        int idx1 = (s_kart_offset + 1) % kart_count;
+        if (idx0 == idx1) idx1 = (idx1 + 1) % kart_count;
+        const KartProperties* kp0 = kart_properties_manager->getKartById(idx0);
+        const KartProperties* kp1 = kart_properties_manager->getKartById(idx1);
         kart0 = kp0->getIdent();
-    }
-    if (kart_count > 1)
-    {
-        const KartProperties* kp1 = kart_properties_manager->getKartById(1);
         kart1 = kp1->getIdent();
     }
+    s_kart_offset++;
     
     RaceManager::get()->setPlayerKart(0, kart0);
     RaceManager::get()->setPlayerKart(1, kart1);
     Log::info("main", "Dual-screen: P1=%s P2=%s", kart0.c_str(), kart1.c_str());
     
-    // Use a default track
-    std::string track_name = "jungle";
-    Track* track = track_manager->getTrack(track_name);
-    if (track == NULL && track_manager->getNumberOfTracks() > 0)
+    // ── Track selection: cycle through available tracks ──
+    static int s_track_offset = 0;
+    std::string track_name = "abyss";
+    unsigned track_total = track_manager->getNumberOfTracks();
+    if (track_total > 0)
     {
-        track = track_manager->getTrack(0);
-        if (track) track_name = track->getIdent();
+        int tidx = s_track_offset % (int)track_total;
+        Track* t = track_manager->getTrack(tidx);
+        if (t)
+        {
+            track_name = t->getIdent();
+            // Skip non-race tracks
+            if (t->isArena() || t->isSoccer())
+                track_name = "abyss";
+        }
     }
+    s_track_offset++;
     RaceManager::get()->setTrack(track_name);
-    Log::info("main", "Dual-screen: Track=%s", track_name.c_str());
+    Log::info("main", "Dual-screen: Track=%s (cycle %d/%d)",
+              track_name.c_str(), s_track_offset, (int)track_total);
     
     // AI count: 0 (just 2 human players)
     RaceManager::get()->setNumKarts(2);

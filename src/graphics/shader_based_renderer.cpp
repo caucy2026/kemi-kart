@@ -809,16 +809,29 @@ void ShaderBasedRenderer::render(float dt, bool is_loading)
             // 1. Per-player HUD: steering wheel, speed, powerup icons, messages
             rg->renderPlayerView(camera, dt);
             
-            // 2. Global HUD: minimap, timer, player ranking list (same as Display 0)
+            // 2. Global HUD: same elements as RaceGUI::renderGlobal() on Display 0
             RaceGUI* gui = dynamic_cast<RaceGUI*>(rg);
             RaceGUIMultitouch* mtgui = rg->getMultitouchGUI();
             
-            if (gui != nullptr)
+            if (gui != nullptr && world != nullptr)
             {
-                // MiniMap — drawn before isRacePhase check (matches renderGlobal)
+                // Ready-Set-Go countdown (drawn during WAIT_FOR_SERVER → GO_PHASE)
+                if (world->getPhase() >= WorldStatus::WAIT_FOR_SERVER_PHASE &&
+                    world->getPhase() <= WorldStatus::GO_PHASE)
+                {
+                    gui->drawGlobalReadySetGo();
+                }
+                // Goal / race end
+                else if (world->isGoalPhase())
+                {
+                    gui->drawGlobalGoal();
+                }
+                
+                // MiniMap
                 gui->drawGlobalMiniMap();
                 
-                if (world != nullptr && world->isRacePhase())
+                // Timer + player icons (only during active race phase)
+                if (world->isRacePhase())
                 {
                     FontDrawer::startBatching();
                     gui->drawGlobalTimer();

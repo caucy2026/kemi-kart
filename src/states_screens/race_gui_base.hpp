@@ -214,8 +214,6 @@ protected:
                                 const core::recti &viewport,
                                 const core::vector2df &scaling);
     void drawGlobalMusicDescription();
-    void drawGlobalReadySetGo();
-    void drawGlobalGoal();
     void drawPlungerInFace(const Camera *camera, float dt);
     /** Instructs the base gui to ignore unimportant messages (like
      *  item messages).
@@ -243,6 +241,8 @@ public:
     virtual void init();
     virtual void reset();
     virtual void renderPlayerView(const Camera *camera, float dt);
+    void drawGlobalReadySetGo();
+    void drawGlobalGoal();
     virtual void addMessage(const irr::core::stringw &m,
                             const AbstractKart *kart, float time,
                             const video::SColor &color=
