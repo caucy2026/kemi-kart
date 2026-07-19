@@ -147,6 +147,60 @@ Java_org_libsdl_app_SDLActivity_nativeSetSecondScreenResolution(
 } // extern "C"
 
 // ============================================================
+// Display 2 Touch → Player 2 Kart Control
+// ============================================================
+
+#include <atomic>
+static std::atomic<float> g_touch2_x{0.5f};
+static std::atomic<float> g_touch2_y{0.5f};
+static std::atomic<bool>  g_touch2_active{false};
+
+extern "C" {
+
+JNIEXPORT void JNICALL
+Java_org_libsdl_app_SDLActivity_nativeTouchDisplay2(
+    JNIEnv* env, jclass clazz, jfloat x, jfloat y, jboolean pressed, jint pointerId)
+{
+    if (pressed) {
+        g_touch2_x.store(x, std::memory_order_relaxed);
+        g_touch2_y.store(y, std::memory_order_relaxed);
+        g_touch2_active.store(true, std::memory_order_relaxed);
+    } else {
+        g_touch2_active.store(false, std::memory_order_relaxed);
+    }
+}
+
+} // extern "C"
+
+/**
+ * Apply Display 2 touch state to Player 1's kart.
+ * Called from the render/game loop thread each frame.
+ */
+void dualScreenApplyTouch()
+{
+    if (!g_touch2_active.load(std::memory_order_relaxed))
+        return;
+    
+    float x = g_touch2_x.load(std::memory_order_relaxed);
+    float y = g_touch2_y.load(std::memory_order_relaxed);
+    
+    // Simple virtual steering zones
+    float steer = 0.0f;
+    float accel = 0.0f;
+    
+    if (x < 0.35f)
+        steer = -1.0f + (x / 0.35f);
+    else if (x > 0.65f)
+        steer = (x - 0.65f) / 0.35f;
+    
+    if (y < 0.3f)
+        accel = 1.0f - (y / 0.3f);
+    
+    extern void dualScreenControlPlayer2(float steer, float accel);
+    dualScreenControlPlayer2(steer, accel);
+}
+
+// ============================================================
 // Public API for the STK render loop
 // ============================================================
 

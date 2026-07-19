@@ -293,6 +293,12 @@ extern "C" {
 #include "utils/string_utils.hpp"
 #include "utils/translation.hpp"
 #include "io/rich_presence.hpp"
+#ifdef ANDROID
+#include "input/input.hpp"
+#include "karts/abstract_kart.hpp"
+#include "karts/controller/controller.hpp"
+#include "modes/world.hpp"
+#endif
 
 #include <IrrlichtDevice.h>
 
@@ -664,6 +670,47 @@ static void startDualScreenRace()
     RaceManager::get()->startNew(false);
     
     Log::info("main", "Dual-screen race started!");
+}
+
+/**
+ * Apply Display 2 touch input directly to Player 2's kart.
+ * Called from the render loop via dualScreenApplyTouch().
+ * steer: -1.0 (full left) to 1.0 (full right)
+ * accel: 0.0 (none) to 1.0 (full accelerate)
+ */
+void dualScreenControlPlayer2(float steer, float accel)
+{
+    World* world = World::getWorld();
+    if (!world) return;
+    
+    // Player 1 is index 1 (Player 0 = index 0)
+    AbstractKart* kart = world->getKart(1);
+    if (!kart) return;
+    
+    Controller* controller = kart->getController();
+    if (!controller) return;
+    
+    // Apply steering
+    const int MAX_VAL = Input::MAX_VALUE;
+    if (steer < -0.1f) {
+        controller->action(PA_STEER_LEFT, (int)(-steer * MAX_VAL));
+        controller->action(PA_STEER_RIGHT, 0);
+    } else if (steer > 0.1f) {
+        controller->action(PA_STEER_RIGHT, (int)(steer * MAX_VAL));
+        controller->action(PA_STEER_LEFT, 0);
+    } else {
+        controller->action(PA_STEER_LEFT, 0);
+        controller->action(PA_STEER_RIGHT, 0);
+    }
+    
+    // Apply acceleration
+    if (accel > 0.1f) {
+        controller->action(PA_ACCEL, (int)(accel * MAX_VAL));
+        controller->action(PA_BRAKE, 0);
+    } else {
+        controller->action(PA_ACCEL, MAX_VAL / 2);
+        controller->action(PA_BRAKE, 0);
+    }
 }
 #endif
 // ======================================================================
