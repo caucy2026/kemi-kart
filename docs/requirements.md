@@ -54,8 +54,9 @@
 | F2 触控分离 | ✅ | SDL 统一路径，按 routedDevId 分流 P0/P1 |
 | F2 道具按钮 | ✅ | FIRE/NITRO/DRIFT/LOOK_BACK 各屏独立 |
 | F2 双屏 HUD | ✅ | minimap + timer + player list 全部两屏渲染 |
-| F3 选单流程 | ⬜ | 目前是自动开赛，跳过选单 |
-| F4 3-2-1 倒计时 | ⚠️ | STK 原有倒计时，需验证双屏同步 |
+| F3 选单流程 | 🔄 | 赛车赛道每局自动轮换（实用替代），完整选单待做 |
+| F4 3-2-1 倒计时 | ✅ | 两屏都渲染 drawGlobalReadySetGo |
+| F4 比赛结束 | ✅ | 两屏都渲染 drawGlobalGoal |
 | F5 架构复用 | ✅ | 两屏共用 SDL→Irrlicht→STK 标准触控链路 |
 
 ---
