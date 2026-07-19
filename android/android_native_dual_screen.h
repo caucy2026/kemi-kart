@@ -46,6 +46,13 @@ void dualScreenMirrorCapture(int w, int h);
  */
 void dualScreenMirrorPresent();
 
+/**
+ * Draw an arbitrary GL texture as a fullscreen quad on Display 2.
+ * Must be called with Display 2's EGL surface active.
+ * Used for independent camera view (Camera 1 FBO → Display 2).
+ */
+void dualScreenDrawFBO(unsigned int texId, int w, int h);
+
 #ifdef __cplusplus
 }
 #endif

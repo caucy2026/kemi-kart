@@ -733,12 +733,75 @@ void ShaderBasedRenderer::render(float dt, bool is_loading)
 
     assert(Camera::getNumCameras() < MAX_PLAYER_COUNT + 1);
     
+#ifdef ANDROID
+    extern bool dualScreenIsReady();
+    extern void dualScreenGetSize(int* w, int* h);
+    bool dual_active = dualScreenIsReady();
+    
+    // Dual-screen FBO for Camera 1 → Display 2 (lazy init)
+    static GLuint s_dual_fbo = 0, s_dual_fbo_color = 0, s_dual_fbo_depth = 0;
+    static int s_dual_fbo_w = 0, s_dual_fbo_h = 0;
+    
+    if (dual_active && s_dual_fbo == 0)
+    {
+        int d2w = 0, d2h = 0;
+        dualScreenGetSize(&d2w, &d2h);
+        if (d2w > 0 && d2h > 0)
+        {
+            glGenFramebuffers(1, &s_dual_fbo);
+            glGenTextures(1, &s_dual_fbo_color);
+            glGenRenderbuffers(1, &s_dual_fbo_depth);
+            
+            glBindTexture(GL_TEXTURE_2D, s_dual_fbo_color);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, d2w, d2h, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+            
+            glBindRenderbuffer(GL_RENDERBUFFER, s_dual_fbo_depth);
+            glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, d2w, d2h);
+            
+            glBindFramebuffer(GL_FRAMEBUFFER, s_dual_fbo);
+            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, s_dual_fbo_color, 0);
+            glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, s_dual_fbo_depth);
+            
+            if (glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE)
+            {
+                s_dual_fbo_w = d2w; s_dual_fbo_h = d2h;
+                Log::info("ShaderBasedRenderer", "Dual-screen FBO: %dx%d", d2w, d2h);
+            }
+            else
+            {
+                Log::error("ShaderBasedRenderer", "Dual-screen FBO incomplete!");
+                dual_active = false;
+            }
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        }
+        else { dual_active = false; }
+    }
+#else
+    bool dual_active = false;
+#endif
+    
     for(unsigned int cam = 0; cam < Camera::getNumCameras(); cam++)
     {
         SP::sp_cur_player = cam;
         SP::sp_cur_buf_id[cam] = (SP::sp_cur_buf_id[cam] + 1) % 3;
         Camera * const camera = Camera::getCamera(cam);
         scene::ICameraSceneNode * const camnode = camera->getCameraSceneNode();
+
+        // Dual-screen: Camera 1 renders to FBO → Display 2 (independent view)
+        // TODO: FBO rendering needs debug - see docs/stk-android-build.md
+        // For now, both cameras render to Display 0 buffer, mirror to Display 2
+        /*
+        if (dual_active && cam == 1 && s_dual_fbo != 0)
+        {
+            glBindFramebuffer(GL_FRAMEBUFFER, s_dual_fbo);
+            glViewport(0, 0, s_dual_fbo_w, s_dual_fbo_h);
+            glScissor(0, 0, s_dual_fbo_w, s_dual_fbo_h);
+        }
+        */
 
         std::ostringstream oss;
         oss << "drawAll() for kart " << cam;
@@ -775,6 +838,14 @@ void ShaderBasedRenderer::render(float dt, bool is_loading)
 
         // Save projection-view matrix for the next frame
         camera->setPreviousPVMatrix(irr_driver->getProjViewMatrix());
+
+        // Restore default framebuffer after Camera 1
+        /*
+        if (dual_active && cam == 1 && s_dual_fbo != 0)
+        {
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        }
+        */
 
         PROFILER_POP_CPU_MARKER();
 
@@ -828,7 +899,10 @@ void ShaderBasedRenderer::render(float dt, bool is_loading)
 
     PROFILER_PUSH_CPU_MARKER("EndScene", 0x45, 0x75, 0x45);
     
+    irr_driver->getVideoDriver()->endScene();
+    
 #ifdef ANDROID
+    // Dual-screen: use mirror for now (Camera 1 FBO not working yet)
     extern void dualScreenMirrorCapture(int w, int h);
     extern void dualScreenMirrorPresent();
     dualScreenMirrorCapture(irr_driver->getActualScreenSize().Width,

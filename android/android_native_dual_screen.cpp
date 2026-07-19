@@ -397,8 +397,59 @@ void dualScreenMirrorPresent()
     if (!g_secondReady || s_mirrorTex == 0)
         return;
     
+    // Save Display 0's EGL state before switching to Display 2
+    EGLDisplay eglDisp = eglGetCurrentDisplay();
+    EGLSurface primaryDraw = eglGetCurrentSurface(EGL_DRAW);
+    EGLSurface primaryRead = eglGetCurrentSurface(EGL_READ);
+    EGLContext eglCtx = eglGetCurrentContext();
+    
     if (!dualScreenMakeCurrent())
         return;
+    
+    ensureQuadProgram();
+    
+    GLint oldProgram = 0;
+    glGetIntegerv(GL_CURRENT_PROGRAM, &oldProgram);
+    glUseProgram(s_quadProgram);
+    
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, s_mirrorTex);
+    glUniform1i(glGetUniformLocation(s_quadProgram, "uTex"), 0);
+    
+    glBindBuffer(GL_ARRAY_BUFFER, s_quadVBuf);
+    GLint aPos = glGetAttribLocation(s_quadProgram, "aPos");
+    glVertexAttribPointer(aPos, 2, GL_FLOAT, GL_FALSE, 0, 0);
+    glEnableVertexAttribArray(aPos);
+    
+    glViewport(0, 0, s_mirrorW, s_mirrorH);
+    glScissor(0, 0, s_mirrorW, s_mirrorH);
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_BLEND);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    
+    glDisableVertexAttribArray(aPos);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glUseProgram(oldProgram);
+    
+    dualScreenSwapBuffers();
+    
+    // CRITICAL: Restore Display 0's EGL surface
+    if (eglDisp != EGL_NO_DISPLAY && primaryDraw != EGL_NO_SURFACE)
+        eglMakeCurrent(eglDisp, primaryDraw, primaryRead, eglCtx);
+}
+
+/**
+ * Draw an arbitrary GL texture as a fullscreen quad on Display 2.
+ * Must be called with Display 2's EGL surface active.
+ * Used to present Camera 1's FBO on Display 2 (independent view).
+ */
+void dualScreenDrawFBO(GLuint texId, int w, int h)
+{
+    if (!g_secondReady || texId == 0)
+    {
+        LOGW("dualScreenDrawFBO: not ready (ready=%d tex=%d)", g_secondReady, texId);
+        return;
+    }
     
     ensureQuadProgram();
     
@@ -408,9 +459,9 @@ void dualScreenMirrorPresent()
     
     glUseProgram(s_quadProgram);
     
-    // Bind mirror texture
+    // Bind the FBO texture
     glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, s_mirrorTex);
+    glBindTexture(GL_TEXTURE_2D, texId);
     glUniform1i(glGetUniformLocation(s_quadProgram, "uTex"), 0);
     
     // Draw fullscreen quad
@@ -419,8 +470,8 @@ void dualScreenMirrorPresent()
     glVertexAttribPointer(aPos, 2, GL_FLOAT, GL_FALSE, 0, 0);
     glEnableVertexAttribArray(aPos);
     
-    glViewport(0, 0, s_mirrorW, s_mirrorH);
-    glScissor(0, 0, s_mirrorW, s_mirrorH);
+    glViewport(0, 0, w, h);
+    glScissor(0, 0, w, h);
     glDisable(GL_DEPTH_TEST);
     glDisable(GL_BLEND);
     
@@ -431,7 +482,4 @@ void dualScreenMirrorPresent()
     
     // Restore state
     glUseProgram(oldProgram);
-    
-    dualScreenSwapBuffers();
-    // SDL will re-bind Display 0's surface on next beginScene
 }
