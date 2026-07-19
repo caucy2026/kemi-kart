@@ -683,72 +683,10 @@ static void startDualScreenRace()
     Log::info("main", "Dual-screen race started!");
 }
 
-/**
- * Apply Display 2 touch input directly to Player 2's kart.
- * Called from the render loop via dualScreenApplyTouch() every frame.
- * steer: -1.0 (full left) to 1.0 (full right)
- * accel: 0.0 (none) to 1.0 (full accelerate)
- * item_action: PlayerAction (PA_NITRO, PA_FIRE, PA_DRIFT, PA_LOOK_BACK) or 0
- * item_value: Input::MAX_VALUE when pressed, 0 when released
- *
- * IMPORTANT: item actions must send value=0 on release (matching
- * MultitouchDevice::updateControls line 632-633). We track the previous
- * action across frames so we can release it when the touch zone changes.
- */
-void dualScreenControlPlayer2(float steer, float accel,
-                               int item_action, int item_value)
-{
-    World* world = World::getWorld();
-    if (!world) return;
-    
-    AbstractKart* kart = world->getKart(1);
-    if (!kart) return;
-    
-    Controller* controller = kart->getController();
-    if (!controller) return;
-    
-    // Track previous item action to send release (value=0) on change
-    static int s_prev_item_action = 0;
-    
-    const int MAX_VAL = Input::MAX_VALUE;
-    
-    // ── Steering ──
-    if (steer < -0.1f) {
-        controller->action(PA_STEER_LEFT, (int)(-steer * MAX_VAL));
-        controller->action(PA_STEER_RIGHT, 0);
-    } else if (steer > 0.1f) {
-        controller->action(PA_STEER_RIGHT, (int)(steer * MAX_VAL));
-        controller->action(PA_STEER_LEFT, 0);
-    } else {
-        controller->action(PA_STEER_LEFT, 0);
-        controller->action(PA_STEER_RIGHT, 0);
-    }
-    
-    // ── Acceleration ──
-    if (accel > 0.1f) {
-        controller->action(PA_ACCEL, (int)(accel * MAX_VAL));
-        controller->action(PA_BRAKE, 0);
-    } else {
-        controller->action(PA_ACCEL, 0);
-        controller->action(PA_BRAKE, 0);
-    }
-    
-    // ── Item actions (FIRE / NITRO / DRIFT / LOOK_BACK) ──
-    // Must release previous action when zone changes or touch ends,
-    // matching MultitouchDevice::updateControls pattern.
-    if (s_prev_item_action != 0 && s_prev_item_action != item_action)
-    {
-        // Release the previous action
-        controller->action((PlayerAction)s_prev_item_action, 0);
-    }
-    
-    if (item_action != 0)
-    {
-        controller->action((PlayerAction)item_action, item_value);
-    }
-    
-    s_prev_item_action = item_action;
-}
+// Display 2 touch input is now handled by SDL's standard touch path.
+// touchDeviceId is preserved through SDL → Irrlicht → STK InputManager,
+// which routes to separate MultitouchDevice instances per display.
+// (See device_manager.cpp: updateMultitouchDevice, input_manager.cpp: EET_TOUCH)
 #endif
 // ======================================================================
 // ----------------------------------------------------------------------------

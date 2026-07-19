@@ -1023,8 +1023,6 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
     public static native void onNativeTouch(int touchDevId, int pointerFingerId,
                                             int action, float x,
                                             float y, float p);
-    // Dual-screen: Display 2 touch events routed directly to Player 2
-    public static native void nativeTouchDisplay2(float x, float y, boolean pressed, int pointerId);
     public static native void onNativeAccel(float x, float y, float z);
     public static native void onNativeClipboardChanged();
     public static native void onNativeSurfaceCreated();

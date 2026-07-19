@@ -68,6 +68,7 @@ private:
     PtrVector<KeyboardConfig, HOLD>    m_keyboard_configs;
     PtrVector<GamepadConfig, HOLD>     m_gamepad_configs;
     MultitouchDevice*                  m_multitouch_device;
+    MultitouchDevice*                  m_multitouch_device_2;  // second display (dual-screen)
 
     InputDevice*                       m_latest_used_device;
     PlayerAssignMode                   m_assign_mode;
@@ -139,6 +140,7 @@ public:
 
     // ---- Multitouch device ----
     MultitouchDevice*   getMultitouchDevice()    { return m_multitouch_device; }
+    MultitouchDevice*   getMultitouchDevice2()   { return m_multitouch_device_2; }
     void                clearMultitouchDevices();
     void                updateMultitouchDevice();
 

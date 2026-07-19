@@ -810,6 +810,7 @@ bool CIrrDeviceSDL::run()
 		case SDL_FINGERDOWN:
 		case SDL_FINGERUP:
 			irrevent.EventType = irr::EET_TOUCH_INPUT_EVENT;
+			irrevent.TouchInput.DeviceID = SDL_event.tfinger.touchId;
 			irrevent.TouchInput.Event = SDL_event.type == SDL_FINGERMOTION ? irr::ETIE_MOVED :
 				SDL_event.type == SDL_FINGERDOWN ? irr::ETIE_PRESSED_DOWN : irr::ETIE_LEFT_UP;
 			irrevent.TouchInput.ID = getTouchId(SDL_event.tfinger.fingerId);

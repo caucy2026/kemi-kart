@@ -1127,7 +1127,31 @@ EventPropagation InputManager::input(const SEvent& event)
     }
     else if (event.EventType == EET_TOUCH_INPUT_EVENT)
     {
-        MultitouchDevice* device = m_device_manager->getMultitouchDevice();
+        // Dual-screen: route touch by device ID to different players
+        MultitouchDevice* device = nullptr;
+        size_t dev_id = event.TouchInput.DeviceID;
+        
+        // Remember the first device ID we see (primary display)
+        static size_t s_primary_device_id = (size_t)-1;
+        static size_t s_secondary_device_id = (size_t)-1;
+        
+        if (s_primary_device_id == (size_t)-1)
+        {
+            s_primary_device_id = dev_id;
+            Log::info("InputManager", "Primary touch device ID: %zu", dev_id);
+        }
+        else if (dev_id != s_primary_device_id && s_secondary_device_id == (size_t)-1)
+        {
+            s_secondary_device_id = dev_id;
+            Log::info("InputManager", "Secondary touch device ID: %zu", dev_id);
+        }
+        
+        // Select the appropriate MultitouchDevice
+        if (dev_id == s_secondary_device_id)
+            device = m_device_manager->getMultitouchDevice2();
+        else
+            device = m_device_manager->getMultitouchDevice();
+        
         unsigned int id = (unsigned int)event.TouchInput.ID;
 
         if (device != NULL && id < device->m_events.size())

@@ -276,11 +276,7 @@ public class SDLSurface extends SurfaceView implements SurfaceHolder.Callback,
                         y = event.getY(i) / mHeight;
                         p = event.getPressure(i);
                         if (p > 1.0f) p = 1.0f;
-                        // Dual-screen: route Display 2 touches to Player 2
-                        if (mDisplayId == 2)
-                            SDLActivity.nativeTouchDisplay2(x, y, true, i);
-                        else
-                            SDLActivity.onNativeTouch(touchDevId, pointerFingerId, action, x, y, p);
+                        SDLActivity.onNativeTouch(touchDevId, pointerFingerId, action, x, y, p);
                     }
                     break;
 
@@ -301,12 +297,7 @@ public class SDLSurface extends SurfaceView implements SurfaceHolder.Callback,
                     y = event.getY(i) / mHeight;
                     p = event.getPressure(i);
                     if (p > 1.0f) p = 1.0f;
-                    // Dual-screen: route Display 2 touches
-                    if (mDisplayId == 2)
-                        SDLActivity.nativeTouchDisplay2(x, y, 
-                            action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_POINTER_DOWN, i);
-                    else
-                        SDLActivity.onNativeTouch(touchDevId, pointerFingerId, action, x, y, p);
+                    SDLActivity.onNativeTouch(touchDevId, pointerFingerId, action, x, y, p);
                     break;
 
                 case MotionEvent.ACTION_CANCEL:
@@ -316,10 +307,7 @@ public class SDLSurface extends SurfaceView implements SurfaceHolder.Callback,
                         y = event.getY(i) / mHeight;
                         p = event.getPressure(i);
                         if (p > 1.0f) p = 1.0f;
-                        if (mDisplayId == 2)
-                            SDLActivity.nativeTouchDisplay2(x, y, false, i);
-                        else
-                            SDLActivity.onNativeTouch(touchDevId, pointerFingerId, MotionEvent.ACTION_UP, x, y, p);
+                        SDLActivity.onNativeTouch(touchDevId, pointerFingerId, MotionEvent.ACTION_UP, x, y, p);
                     }
                     break;
 

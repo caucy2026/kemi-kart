@@ -411,7 +411,10 @@ struct SEvent
     //! Any kind of touch event.
 	struct STouchInput
 	{
-        // Touch ID.
+        // Touch device ID. 0 = primary display, non-zero = secondary display(s).
+        size_t DeviceID;
+
+        // Touch finger ID.
         size_t ID;
 
         // X position of simple touch.

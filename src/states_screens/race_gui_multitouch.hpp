@@ -40,6 +40,7 @@ class RaceGUIMultitouch
 private:
     RaceGUIBase* m_race_gui;
     MultitouchDevice* m_device;
+    MultitouchDevice* m_device_2;   // second display (dual-screen)
     
     bool m_gui_action;
     bool m_is_spectator_mode;

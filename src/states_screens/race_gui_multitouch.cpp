@@ -66,6 +66,7 @@ RaceGUIMultitouch::RaceGUIMultitouch(RaceGUIBase* race_gui)
     m_screen_tex = NULL;
 
     m_device = input_manager->getDeviceManager()->getMultitouchDevice();
+    m_device_2 = input_manager->getDeviceManager()->getMultitouchDevice2();
 
     init();
 }   // RaceGUIMultitouch
@@ -269,6 +270,17 @@ void RaceGUIMultitouch::createRaceGUI()
     m_device->addButton(BUTTON_LOOK_BACKWARDS,
                         int(first_column_x), int(h - 1 * col_size),
                         int(btn_size), int(btn_size));
+    
+    // Dual-screen: clone buttons to the second MultitouchDevice (Display 2→P1)
+    if (m_device_2 != NULL && m_device_2->getButtonsCount() == 0)
+    {
+        for (unsigned int i = 0; i < m_device->getButtonsCount(); i++)
+        {
+            MultitouchButton* btn = m_device->getButton(i);
+            m_device_2->addButton(btn->type, btn->x, btn->y,
+                                  btn->width, btn->height, btn->callback);
+        }
+    }
 } // createRaceGUI
 
 //-----------------------------------------------------------------------------
@@ -359,12 +371,18 @@ void RaceGUIMultitouch::draw(const AbstractKart* kart,
                              const core::vector2df &scaling)
 {
 #ifndef SERVER_ONLY
-    if (m_device == NULL)
+    // Select the correct MultitouchDevice based on which player's kart
+    // is being rendered. Display 0 → m_device (P0), Display 2 → m_device_2 (P1).
+    MultitouchDevice* dev = m_device;
+    if (kart != NULL && kart->getWorldKartId() == 1 && m_device_2 != NULL)
+        dev = m_device_2;
+    
+    if (dev == NULL)
         return;
 
-    for (unsigned int i = 0; i < m_device->getButtonsCount(); i++)
+    for (unsigned int i = 0; i < dev->getButtonsCount(); i++)
     {
-        MultitouchButton* button = m_device->getButton(i);
+        MultitouchButton* button = dev->getButton(i);
 
         core::rect<s32> btn_pos(button->x, button->y, button->x + button->width,
                                 button->y + button->height);
@@ -512,18 +530,7 @@ void RaceGUIMultitouch::draw(const AbstractKart* kart,
 
             if (btn_texture)
             {
-                // For Player 1 (Display 2 / dual-screen):
-                // Item button press state comes from the shared MultitouchDevice
-                // which processes Display 0 touches only. Display 2 input goes
-                // through JNI, so the shared button->pressed is irrelevant.
-                // However, BUTTON_STEERING visual feedback uses kart steer
-                // (fixed above), so the wheel rotation IS independent.
-                // We only suppress the item-button background highlight for P1
-                // to prevent Display 0 touches from lighting up Display 2 buttons.
-                bool is_player1 = (kart != NULL && kart->getWorldKartId() == 1);
-                bool show_pressed = (!is_player1 && can_be_pressed && button->pressed);
-                
-                video::ITexture* btn_bg = show_pressed ?
+                video::ITexture* btn_bg = (can_be_pressed && button->pressed) ?
                                                         m_bg_button_focus_tex :
                                                         m_bg_button_tex;
                 core::rect<s32> coords_bg(pos_zero, btn_bg->getSize());

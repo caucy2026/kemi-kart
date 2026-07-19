@@ -741,11 +741,7 @@ void ShaderBasedRenderer::render(float dt, bool is_loading)
     extern bool dualScreenMakeCurrent();
     extern bool dualScreenSwapBuffers();
     extern bool dualScreenRestorePrimary();
-    extern void dualScreenApplyTouch();
     bool dual_active = dualScreenIsReady();
-    
-    // Apply Display 2 touch input to Player 2's kart (every frame)
-    if (dual_active) dualScreenApplyTouch();
 #else
     bool dual_active = false;
 #endif

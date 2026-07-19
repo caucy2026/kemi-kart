@@ -48,12 +48,14 @@ DeviceManager::DeviceManager()
     m_assign_mode = NO_ASSIGN;
     m_single_player = NULL;
     m_multitouch_device = NULL;
+    m_multitouch_device_2 = NULL;
 }   // DeviceManager
 
 // -----------------------------------------------------------------------------
 DeviceManager::~DeviceManager()
 {
     delete m_multitouch_device;
+    delete m_multitouch_device_2;
 }   // ~DeviceManager
 
 // -----------------------------------------------------------------------------
@@ -96,6 +98,7 @@ bool DeviceManager::initialize()
         UserConfigParams::m_multitouch_active > 1)
     {
         m_multitouch_device = new MultitouchDevice();
+        m_multitouch_device_2 = new MultitouchDevice();
     }
 
     if (created) save();
@@ -119,6 +122,8 @@ void DeviceManager::clearMultitouchDevices()
 {
     delete m_multitouch_device;
     m_multitouch_device = NULL;
+    delete m_multitouch_device_2;
+    m_multitouch_device_2 = NULL;
 }   // clearMultitouchDevices
 
 // -----------------------------------------------------------------------------
@@ -146,6 +151,8 @@ void DeviceManager::setAssignMode(const PlayerAssignMode assignMode)
 
         if (m_multitouch_device != NULL)
             m_multitouch_device->setPlayer(NULL);
+        if (m_multitouch_device_2 != NULL)
+            m_multitouch_device_2->setPlayer(NULL);
     }
 }   // setAssignMode
 
@@ -372,11 +379,12 @@ void DeviceManager::updateMultitouchDevice()
         // in single-player mode, assign the gamepad as needed
         if (m_multitouch_device->getPlayer() != m_single_player)
             m_multitouch_device->setPlayer(m_single_player);
+        if (m_multitouch_device_2)
+            m_multitouch_device_2->setPlayer(NULL);
     }
     else if (g_dual_screen_mode)
     {
-        // Dual-screen: keep multitouch on Player 0 for Display 0 touch
-        // Player 2 is controlled via JNI direct injection (Display 2)
+        // Dual-screen: multitouch[0] → Player 0, multitouch[1] → Player 1
         if (m_multitouch_device->getPlayer() == NULL)
         {
             StateManager::ActivePlayer *ap =
@@ -384,13 +392,24 @@ void DeviceManager::updateMultitouchDevice()
             if (ap != NULL)
                 m_multitouch_device->setPlayer(ap);
         }
+        if (m_multitouch_device_2 && m_multitouch_device_2->getPlayer() == NULL)
+        {
+            StateManager::ActivePlayer *ap =
+                StateManager::get()->getActivePlayer(1);
+            if (ap != NULL)
+                m_multitouch_device_2->setPlayer(ap);
+        }
     }
     else
     {
         m_multitouch_device->setPlayer(NULL);
+        if (m_multitouch_device_2)
+            m_multitouch_device_2->setPlayer(NULL);
     }
     
     m_multitouch_device->updateController();
+    if (m_multitouch_device_2)
+        m_multitouch_device_2->updateController();
 }   // updateMultitouchDevice
 
 //-----------------------------------------------------------------------------
@@ -654,5 +673,7 @@ void DeviceManager::shutdown()
     m_keyboard_configs.clearAndDeleteAll();
     delete m_multitouch_device;
     m_multitouch_device = NULL;
+    delete m_multitouch_device_2;
+    m_multitouch_device_2 = NULL;
     m_latest_used_device = NULL;
 }   // shutdown
