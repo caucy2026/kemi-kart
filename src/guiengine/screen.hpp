@@ -164,6 +164,9 @@ namespace GUIEngine
         bool getUpdateInBackground() {return m_update_in_background;}
 
         /** \return the name of this menu (which is the name of the file) */
+
+            /** Shows or hides every widget in this screen, including nested children. */
+            void setWidgetsVisible(bool visible);
         const std::string& getName() const { return m_filename; }
 
         virtual void unload();

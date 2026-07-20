@@ -88,6 +88,17 @@ public class SuperTuxKartActivity extends SDLActivity {
         // Stub
     }
 
+    /**
+     * Called from Irrlicht when an edit box receives focus. The current
+     * dual-screen activity intentionally has no Android text-input overlay,
+     * but native code requires this callback to exist.
+     */
+    public void fromSTKEditBox(final int widget_id, final String text,
+                               final int selection_start,
+                               final int selection_end, final int type) {
+        // No Android text-input bridge is installed in this activity.
+    }
+
     // Additional STK JNI methods (stubs)
 
     public int getMovedHeight() { return 0; }

@@ -1,10 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <stkgui>
-    <!-- Dual-screen: shown on D2 while P1 waits for P0 -->
+    <!-- Dual-screen lobby waiting messages -->
     <label id="p1_waiting" x="10%" y="30%" width="80%" height="40%"
-           I18N="In the kart selection screen" text="Waiting for host to create map..."
+           I18N="In the kart selection screen" text="Waiting for the main-screen player..."
            word_wrap="true" align="center" text_align="center"/>
-    <div x="1%" y="1%" width="98%" height="99%" layout="vertical-row" >
+        <label id="p0_waiting" x="10%" y="30%" width="80%" height="40%"
+            I18N="In the kart selection screen" text="Waiting for the second player to confirm..."
+            word_wrap="true" align="center" text_align="center"/>
+        <div id="kart_selection_ui" x="1%" y="1%" width="98%" height="99%" layout="vertical-row" >
         <header width="80%" height="8%"
                I18N="In the kart selection (player setup) screen"
                text="Choose a Kart"

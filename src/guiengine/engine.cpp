@@ -710,6 +710,11 @@ namespace GUIEngine
 using namespace irr::gui;
 using namespace irr::video;
 
+#ifdef ANDROID
+extern bool g_dual_screen_show_p0_wait_message;
+extern bool g_dual_screen_show_p1_wait_message;
+#endif
+
 namespace GUIEngine
 {
 
@@ -729,6 +734,7 @@ namespace GUIEngine
         IrrlichtDevice* g_device;
         IVideoDriver* g_driver;
         Screen* g_current_screen = NULL;
+        Screen* g_display0_screen = NULL;
         AbstractStateManager* g_state_manager = NULL;
         Widget* g_focus_for_player[MAX_PLAYER_COUNT];
         int g_current_display_id = -1;  // -1=all, 0=D0, 2=D2
@@ -1370,6 +1376,29 @@ namespace GUIEngine
         g_env->drawAll();
         Log::info("GUIEngine", "drawAll done");
 
+#ifdef ANDROID
+        if (gamestate == MENU)
+        {
+            const bool show_p0_message =
+                Private::g_current_display_id == 0 &&
+                g_dual_screen_show_p0_wait_message;
+            const bool show_p1_message =
+                Private::g_current_display_id == 2 &&
+                g_dual_screen_show_p1_wait_message;
+            if (show_p0_message || show_p1_message)
+            {
+                const int x = screen_size.Width / 2;
+                const int y = screen_size.Height / 2;
+                const core::rect<s32> pos(x, y, x, y);
+                const wchar_t* message = show_p0_message
+                    ? L"Waiting for the second player to confirm..."
+                    : L"Waiting for the main-screen player to choose a track...";
+                getTitleFont()->draw(message, pos,
+                    video::SColor(255, 255, 255, 255), true, true);
+            }
+        }
+#endif
+
         if (gamestate == GAME && !is_loading && !dialog_opened)
         {
             RaceGUIBase* rg = World::getWorld()->getRaceGUI();
@@ -1681,6 +1710,9 @@ namespace GUIEngine
         }
 
         Screen* screen = getCurrentScreen();
+        if (Private::g_current_display_id == 0 &&
+            Private::g_display0_screen != NULL)
+            screen = Private::g_display0_screen;
 
         if (screen == NULL) return NULL;
 
@@ -1706,6 +1738,9 @@ namespace GUIEngine
         }
 
         Screen* screen = getCurrentScreen();
+        if (Private::g_current_display_id == 0 &&
+            Private::g_display0_screen != NULL)
+            screen = Private::g_display0_screen;
 
         if (screen == NULL) return NULL;
 

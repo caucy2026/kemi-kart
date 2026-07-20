@@ -96,6 +96,7 @@ namespace GUIEngine
         extern irr::IrrlichtDevice* g_device;
         extern irr::video::IVideoDriver* g_driver;
         extern Screen* g_current_screen;
+        extern Screen* g_display0_screen;
         extern AbstractStateManager* g_state_manager;
         extern Widget* g_focus_for_player[MAX_PLAYER_COUNT];
         extern int g_current_display_id;
@@ -177,6 +178,10 @@ namespace GUIEngine
       * \return the currently shown screen, or NULL if none
       */
     inline Screen*                    getCurrentScreen() { return Private::g_current_screen; }
+
+    /** Optional D0-only screen used while D2 keeps the current menu alive. */
+    inline void setDisplay0Screen(Screen* screen) { Private::g_display0_screen = screen; }
+    inline Screen* getDisplay0Screen() { return Private::g_display0_screen; }
 
     /**
       * \return the state manager being used, as passed to GUIEngine::init

@@ -78,6 +78,9 @@ protected:
     /** Dual-screen: true after init() completes, prevent auto-confirm during init */
     bool m_init_done;
 
+    /** Dual-screen: P0 is selecting a track while D2 keeps the P1 kart UI. */
+    bool m_p0_selecting_track;
+
     GUIEngine::PlayerKartWidget* m_removed_widget;
 
     GUIEngine::TextBoxWidget *m_search_box;

@@ -1,5 +1,106 @@
 # STK 双屏异显 — 版本记录
 
+## v1.6 (2026-07-20) — 双屏大厅完整流程与 Deferred RTT 黑块根治
+
+> Android package: `version_name 1.5 -> 1.6`, `version_code 1 -> 2`.
+> Target: RK356x / Mali-G52 / Android arm64-v8a, Display 0 + Display 2.
+
+### 用户可见改动
+
+- **双屏选车改为明确确认流程**：点击 kart 只更新 3D 预览与属性；只有点击 Continue 才锁定该玩家，消除了浏览 kart 时被自动确认的问题。
+- **默认选车信息可见**：D0 进入选车时立即布局模型、属性和 kart 列表，不再出现角色模型及车辆信息空白的首帧。
+- **双方独立等待状态**：P0 确认后 D0 显示等待 P1；P1 确认后 D2 显示等待主屏。等待画面会隐藏另一个屏幕的模型和 UI，避免残留叠加。
+- **P0 选图、P1 等待、同时开赛**：两名玩家确认 kart 后保持 `MENU` 状态，D0 可正常浏览和确认地图，D2 固定显示等待页。P0 确认赛道后才创建共享 `World`，两个屏幕一同进入标准 3-2-1 双人比赛。
+- **D2 全屏显示**：外接屏 Presentation 使用 immersive fullscreen，隐藏系统状态栏和导航栏，避免内容被系统 UI 挤出屏幕。
+- **3D kart 预览与比赛小地图黑色方块修复**：消除选中 kart 时背景的黑色闪烁方块；同一 deferred RTT 路径的小地图同步修复。
+
+### 关键实现
+
+| 范围 | 文件 | 改动 |
+|---|---|---|
+| 双屏大厅状态机 | `src/states_screens/kart_selection.cpp/.hpp` | 新增 P0 正在选图状态；移除 kart hover 自动确认；在双方确认后初始化两人比赛参数并转入地图页；按显示器同步 kart、地图和等待 UI。 |
+| 地图确认 | `src/states_screens/tracks_and_gp_screen.cpp` | 仅允许 D0 确认并调用标准 `startSingleRace`；D2 等待画面不接受地图控件。 |
+| UI 布局 | `data/gui/screens/karts.stkgui`, `data/gui/screens/tracks_and_gp.stkgui` | 添加 P0/P1 等待标签与可整体隐藏的 kart/map 容器。 |
+| 逐屏 GUI | `src/guiengine/engine.*`, `screen.*`, `event_handler.cpp`, `shader_based_renderer.cpp` | 每个 D0/D2 render pass 使用正确 display ID 与 widget 可见性；双屏布局改用立即生效的 `updateSizeNow`，避免两 surface 交替绘制时的动画布局错位。 |
+| Android 壳 | `android/src/main/java/SuperTuxKartActivity.java`, `android/src/main/java/org/libsdl/app/DualScreenPresentation.java` | 补齐原生 edit-box JNI 回调 stub；D2 Presentation 开启沉浸式全屏。 |
+| Deferred renderer | `src/graphics/shader_based_renderer.cpp` | combine pass 读取 depth-stencil 前临时解除 `FBO_COLORS` 的 `GL_DEPTH_STENCIL_ATTACHMENT`，完成后立刻重新挂回。 |
+
+### Deferred RTT 黑块：根因分析与解决过程
+
+#### 现象与控制组
+
+- 问题在单屏版本已经存在，双屏仅让预览更容易观察到；因此首先排除双屏布局、ribbon 背景和 kart 资源本身。
+- Wilber、Amanda 的不透明材质预览会出现随帧闪烁的黑色方块；Hexley、Puffy 含 `alphablend` 透明 pass 时背景较干净。这个差异用于定位 renderer pass，不作为资源损坏结论。
+- 同类方块同时出现在比赛小地图，说明问题位于 `ModelViewWidget` 和 `Graph::makeMiniMap` 共用的 `RenderTarget::renderToTexture` / deferred RTT 流程。
+
+#### 已验证并排除的方向
+
+| 假设 | 实验结果 | 结论 |
+|---|---|---|
+| 选车 UI、阴影或双屏合成 | 单屏也复现；更换 UI/alpha 合成状态没有改变截图 | 排除。 |
+| GL1 RTT、RGBA/BGRA/float 纹理格式 | 设备运行 `ShaderBasedRenderer` + `GL3RenderTarget`，Mali 使用 `GL_RGBA8` | 排除。 |
+| UI quad blend、scissor、depth mask 或 tone mapping | 组合输出前后及 UI 最终合成都检查过；强制不走 post-processing 仍有方块 | 排除。 |
+| forward 渲染 | 强制 forward RTT 后方块消失 | 问题确定在 deferred 渲染阶段，但 forward 仅作诊断，不作为最终降级方案。 |
+| 深度清除 API 或残留 write mask | `glClearBufferfi` 与传统 depth/stencil clear 均不能改变条纹 | 不是单纯 clear API 或上一帧 mask 泄漏。 |
+
+#### 确认根因
+
+1. 为 `combine_diffuse_color.frag` 临时输出 depth 灰度图。注意 Android 首次运行会把 APK assets 解压到外部存储，修改 `data/shaders` 或仅重新安装 APK 不会覆盖已解压文件；诊断 shader 必须同步到：
+	 `/storage/emulated/0/Android/data/org.supertuxkart.stk/files/SuperTuxKart/data/shaders/`。
+2. 实机 depth 图中黑白条纹与最终黑色方块一一对应，证明错误数据来自 deferred depth-stencil 采样，而不是颜色合成。
+3. `RTT` 将同一张 `GL_DEPTH24_STENCIL8` 纹理同时挂给 `FBO_SP` 和 `FBO_COLORS`。combine 阶段在 `FBO_COLORS` 仍附着该纹理时，把它作为 `depth_stencil` sampler 读取。
+4. 该 read/write feedback loop 在 GLES 中是未定义行为；Mali-G52 返回按 tile 分布的错误深度值，combine 将其视为几何深度，产生黑色方块。
+5. 诊断性地在 combine 前解除 depth-stencil attachment 后，depth 灰度图的条纹完全消失，直接证实 feedback loop。恢复正常 fragment shader 后，Wilber 预览背景连续干净，小地图同路径不再出现方块。
+
+#### 最终修复
+
+```cpp
+m_rtts->getFBO(FBO_COLORS).bind();
+glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT,
+		GL_TEXTURE_2D, 0, 0);
+CombineDiffuseColor::getInstance()->render(...,
+		m_rtts->getDepthStencilTexture(), ...);
+glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT,
+		GL_TEXTURE_2D, m_rtts->getDepthStencilTexture(), 0);
+```
+
+只在全屏 combine shader 采样 depth 的窗口解除 attachment；后续 skybox、透明材质、粒子和后处理恢复使用原 depth-stencil，不改变图形质量或强制 forward renderer。
+
+### 实机验证
+
+- `arm64-v8a` NDK 编译和 `./gradlew assembleDebug` 成功。
+- APK 已在 `192.168.3.54:5555` 安装、启动，运行 `org.supertuxkart.stk/.SuperTuxKartActivity`。
+- Wilber 不透明预览：修复后背景稳定，无黑色 tile。
+- Hexley/Puffy 透明材质控制组保持正常。
+- 比赛小地图：同一 shared deferred RTT 路径完成回归检查，无黑色 tile。
+- P0/P1 选车、等待、P0 选图、两屏共同进入比赛流程已完成实机验证。
+
+### 后续注意事项
+
+1. **禁止在附着到当前 draw framebuffer 的纹理上采样。** 新增 fullscreen pass 时，要检查 color、depth 和 stencil attachment 是否同时被作为 sampler 使用；必要时先解绑或输出到独立 FBO。
+2. **Android shader 资产有两份生命周期。** 维护源文件时保持 `data/shaders` 与 `android/assets/data/shaders` 一致；测试已运行设备时，重新安装不保证覆盖外部存储的解压资产。应删除 `.extracted` 触发完整解压，或明确推送改动资源后再测试。
+3. **不要用 forward RTT 作为修复。** 它只能证明 deferred 分支有问题，会降低预览和小地图的真实渲染路径覆盖。
+4. **双屏菜单期间不要创建 `World`。** P0 选图阶段必须保留 `MENU`；提前进入 `GAME` 会让 D2 渲染赛道并与菜单控件叠加，历史上还导致 SDLThread 崩溃。
+5. **交替 D0/D2 render pass 内的布局应立即生效。** 选车模型移动继续使用 `updateSizeNow`；异步动画 `move` 容易让一个 display 看到过渡布局。
+6. **回归测试必须覆盖单屏和双屏。** 每次调整 RTT/FBO，至少检查 Wilber/Amanda、Hexley/Puffy、小地图，以及 D0/D2 两个 display 的截图。
+
+### 构建与部署命令
+
+```bash
+cd android
+/Users/newlink/android-sdk/ndk/26.1.10909125/ndk-build \
+	NDK_PROJECT_PATH=. APP_BUILD_SCRIPT=Android.mk APP_ABI=arm64-v8a \
+	APP_PLATFORM=android-24 APP_STL=c++_static PROJECT_VERSION=1.6 \
+	PACKAGE_NAME=org.supertuxkart.stk APP_DIR_NAME=SuperTuxKart \
+	PACKAGE_CLASS_NAME=org/supertuxkart/stk/SuperTuxKartActivity -j4
+./gradlew assembleDebug
+adb -s 192.168.3.54:5555 install -r build/outputs/apk/debug/android-debug.apk
+adb -s 192.168.3.54:5555 shell am start -n \
+	org.supertuxkart.stk/.SuperTuxKartActivity
+```
+
+---
+
 ## v1.1.0 (2026-07-19) — 统一触控架构 & 两屏独立操控
 
 ### 架构变更（重大重构）

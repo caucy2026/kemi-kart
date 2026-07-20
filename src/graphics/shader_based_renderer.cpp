@@ -332,6 +332,8 @@ void ShaderBasedRenderer::renderSceneDeferred(scene::ICameraSceneNode * const ca
     m_rtts->getFBO(FBO_COLORS).bind();
     glClear(UserConfigParams::m_glow ? GL_COLOR_BUFFER_BIT :
         GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT,
+        GL_TEXTURE_2D, 0, 0);
 
     {
         PROFILER_PUSH_CPU_MARKER("- Combine diffuse color", 0x2F, 0x77, 0x33);
@@ -362,6 +364,8 @@ void ShaderBasedRenderer::renderSceneDeferred(scene::ICameraSceneNode * const ca
             bg_color : std::array<float, 4>{{0.0f, 0.0f, 0.0f, 0.0f}});
         PROFILER_POP_CPU_MARKER();
     }
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT,
+        GL_TEXTURE_2D, m_rtts->getDepthStencilTexture(), 0);
 
     if (SP::sp_debug_view)
     {
@@ -849,7 +853,7 @@ void ShaderBasedRenderer::render(float dt, bool is_loading)
                 // Fallback: at least draw player icons
                 rg->drawGlobalPlayerIcons((int)mtgui->getHeight());
             }
-            
+
             dualScreenSwapBuffers();
             if (!dualScreenRestorePrimary())
             {
@@ -893,6 +897,7 @@ void ShaderBasedRenderer::render(float dt, bool is_loading)
         ScopedGPUTimer Timer(irr_driver->getGPUTimer(Q_GUI));
         PROFILER_PUSH_CPU_MARKER("GUIEngine", 0x75, 0x75, 0x75);
         // Either render the gui, or the global elements of the race gui.
+        GUIEngine::setCurrentDisplayId(0);
         GUIEngine::render(dt, is_loading);
 
         if (irr_driver->getRenderNetworkDebug() && !is_loading)

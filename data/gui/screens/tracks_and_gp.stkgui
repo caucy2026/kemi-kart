@@ -6,7 +6,7 @@
            I18N="In the track and grand prix selection screen" text="Waiting for host to create map..."
            word_wrap="true" align="center" text_align="center"/>
 
-    <div x="1%" y="0" width="98%" height="98%" layout="vertical-row" >
+    <div id="track_selection_ui" x="1%" y="0" width="98%" height="98%" layout="vertical-row" >
         <div width="100%" proportion="5" layout="horizontal-row">
             <div width="82%" height="100%" layout="vertical-row">
                 <header height="21%" I18N="In the track and grand prix selection screen" text="Grand Prix"

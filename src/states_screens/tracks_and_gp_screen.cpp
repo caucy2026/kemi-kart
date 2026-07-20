@@ -65,7 +65,8 @@ void TracksAndGPScreen::eventCallback(Widget* widget, const std::string& name,
         extern bool g_dual_screen_mode;
         if (g_dual_screen_mode)
         {
-            RaceManager::get()->setTrack(selection);
+            extern bool g_dual_screen_show_p1_wait_message;
+            g_dual_screen_show_p1_wait_message = false;
             RaceManager::get()->startSingleRace(selection, 3, false);
         }
         else
@@ -124,8 +125,10 @@ void TracksAndGPScreen::eventCallback(Widget* widget, const std::string& name,
                 extern bool g_dual_screen_mode;
                 if (g_dual_screen_mode)
                 {
-                    RaceManager::get()->setTrack(track->getIdent());
-                    RaceManager::get()->startSingleRace(track->getIdent(), 3, false);
+                    extern bool g_dual_screen_show_p1_wait_message;
+                    g_dual_screen_show_p1_wait_message = false;
+                    RaceManager::get()->startSingleRace(track->getIdent(), 3,
+                                                        false);
                 }
                 else
 #endif
@@ -310,24 +313,16 @@ void TracksAndGPScreen::syncDisplayWidgets(int display_id)
     extern bool g_dual_screen_mode;
     if (!g_dual_screen_mode) return;
 
+    Widget* track_selection_ui = getWidget("track_selection_ui");
     Widget* waiting_label = getWidget("waiting_p1");
-    Widget* tracks_ribbon = getWidget("tracks");
-    Widget* gps_ribbon    = getWidget("gps");
-    Widget* back_btn      = getWidget("back");
 
     if (display_id == 2) // D2: show waiting
     {
         if (waiting_label) waiting_label->setVisible(true);
-        if (tracks_ribbon) tracks_ribbon->setVisible(false);
-        if (gps_ribbon)    gps_ribbon->setVisible(false);
-        if (back_btn)      back_btn->setVisible(false);
     }
     else // D0: show track selection
     {
         if (waiting_label) waiting_label->setVisible(false);
-        if (tracks_ribbon) tracks_ribbon->setVisible(true);
-        if (gps_ribbon)    gps_ribbon->setVisible(true);
-        if (back_btn)      back_btn->setVisible(true);
     }
 }
 #endif

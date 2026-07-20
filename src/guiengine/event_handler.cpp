@@ -186,7 +186,13 @@ bool EventHandler::OnEvent (const SEvent &event)
             // Dual-screen: track the ACTUAL touch device from real touch events
 #ifdef ANDROID
             if (g_dual_screen_mode)
+            {
                 m_last_touch_device = event.TouchInput.DeviceID;
+                GUIEngine::setCurrentDisplayId(event.TouchInput.DeviceID);
+                if (GUIEngine::getCurrentScreen())
+                    GUIEngine::getCurrentScreen()->syncDisplayWidgets(
+                        event.TouchInput.DeviceID);
+            }
 #endif
 
             // Diagnostic: log DeviceID to determine touch→display mapping

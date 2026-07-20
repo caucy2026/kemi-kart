@@ -586,11 +586,15 @@ void setupRaceStart()
 // Global flag: signals dual-screen mode to DeviceManager so it keeps
 // the multitouch device assigned to Player 0 (Display 0).
 bool g_dual_screen_mode = false;
+bool g_dual_screen_show_p0_wait_message = false;
+bool g_dual_screen_show_p1_wait_message = false;
 
 static void startDualScreenRace()
 {
     Log::info("main", "Starting dual-screen 2-player race...");
     g_dual_screen_mode = true;
+    g_dual_screen_show_p0_wait_message = false;
+    g_dual_screen_show_p1_wait_message = false;
     
     // Ensure there are at least 2 player profiles
     PlayerManager::get()->enforceCurrentPlayer();

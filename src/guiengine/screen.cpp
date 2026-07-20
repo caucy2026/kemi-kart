@@ -126,6 +126,24 @@ void Screen::tearDown()
 #pragma mark Load/Init
 #endif
 
+// -----------------------------------------------------------------------------
+static void setWidgetsVisibleRecursively(PtrVector<Widget>& widgets,
+                                         bool visible)
+{
+    Widget* widget;
+    for_in (widget, widgets)
+    {
+        widget->setVisible(visible);
+        setWidgetsVisibleRecursively(widget->getChildren(), visible);
+    }
+}
+
+// -----------------------------------------------------------------------------
+void Screen::setWidgetsVisible(bool visible)
+{
+    setWidgetsVisibleRecursively(m_widgets, visible);
+}   // setWidgetsVisible
+
 /** \brief loads this Screen from the file passed to the constructor */
 void Screen::loadFromFile()
 {
@@ -135,6 +153,7 @@ void Screen::loadFromFile()
     IXMLReader* xml = file_manager->createXMLReader( path );
 
     parseScreenFileDiv(xml, m_widgets);
+
     m_loaded = true;
     calculateLayout();
 
