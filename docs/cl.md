@@ -51,6 +51,47 @@
 
 ---
 
+## v1.1.1 (2026-07-19) — Kart 选择界面双屏独立触控
+
+### 功能
+- **独立的 kart 选择**：D0 触摸只改 P0 的 kart，D2 触摸只改 P1 的 kart
+- **独立的 3D 模型更新**：每个屏显示自己玩家的 kart 模型
+- **独立的 ribbon 高亮**：kart 图标选中高亮只在对应屏幕上显示
+
+### 修复 (3 处核心改动)
+
+| # | 文件 | 问题 | 修复 |
+|---|------|------|------|
+| 1 | `event_handler.cpp` | `setFocusForPlayer` 调用太晚，`getSelectedRibbon` 找不到 focus → P1 回调永不触发 | `setFocusForPlayer` 移到 `m_event_handler->mouseHovered` 之前 |
+| 2 | `event_handler.cpp` | 内部 GUI 事件(DeviceID=0)每帧涌入污染 `m_last_touch_device` → 交叉污染 | 增加 `m_last_touch_device` 与 `curDisp` 匹配校验 |
+| 3 | `skin.cpp` | ribbon 渲染 3 处硬编码 `PLAYER_ID_GAME_MASTER`(0) → 两屏高亮同步 | 改用 `curDisp` 映射 D0→P0, D2→P1 |
+
+### 踩坑记录
+| 问题 | 根因 | 解决 |
+|------|------|------|
+| P1 模型不更新 | `setFocusForPlayer` 在 `getSelectedRibbon` 之后调用 → 返回NULL | 调换顺序（修复1） |
+| D2 触摸导致 P0 变化 | 内部 GUI 事件 DeviceID=0 触发 ribbon hover | DeviceID-curDisp 匹配过滤（修复2） |
+| 两屏 kart 图标高亮相同 | skin.cpp 固定查 P0 的选中状态 | 按 curDisp 动态选 playerID（修复3） |
+| `input -d 2 tap` 不稳定 | tap 是瞬间事件，50% 概率落在错误交替帧 | 改用 swipe 持续事件 |
+| `extern bool g_dual_screen_mode;` linker error | namespace 内声明变成 `GUIEngine::xxx` | 文件头部全局作用域声明 |
+| 过滤用 `break` 实际跳出 switch | C++ case 中的 break 作用于 switch 而非 if | 改用 `skip` 标志变量 |
+
+### 闭环调试方法
+```bash
+# 双屏截图
+adb shell screencap -d 0 -p /sdcard/d0.png  # 主屏
+adb shell screencap -d 2 -p /sdcard/d2.png  # 副屏
+# 模拟触摸
+adb shell input -d 2 swipe 100 900 1600 900 2000  # D2副屏
+adb shell input swipe 100 900 1600 900 2000       # D0主屏
+# 日志验证
+adb logcat -d | grep "KartHover:"    # player_id 是否正确
+adb logcat -d | grep "ribbonHover:"  # lastTouchDev + curDisp
+adb logcat -d | grep "Touch dev="    # DeviceID 来源
+```
+
+---
+
 ## v1.0.0 (2026-07-19) — 双屏对战首版
 
 ### 功能

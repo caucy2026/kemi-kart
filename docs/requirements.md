@@ -27,16 +27,31 @@
 - 虚拟方向盘要在副屏上也看得见！
 - 两边触摸互不干扰
 
-### F3. 选单流程（王者荣耀风格主从界面）
-- **不动 STK 原有选择界面和操作逻辑**
-- **阶段1 - 选赛道（房主 P0）**：
-  - Display 0 显示 STK 原生选赛道界面，P0 操作选择
-  - Display 2 显示"等待房主选赛道..."
-- **阶段2 - 选赛车（两屏独立）**：
-  - Display 0 显示 STK 原生选车界面，P0 操作选自己的车 + 确认
-  - Display 2 显示 STK 原生选车界面，P1 操作选自己的车 + 确认
-  - 两屏互不干扰，各自看到自己的选择
-- **阶段3 - 确认开赛**：两屏都确认 → 3-2-1 倒计时 → 比赛
+### F3. 选单流程（不改 STK 原有界面逻辑）
+
+```
+选角色(kart) ──→ 选赛道 ──→ 加载地图 ──→ P1进入✅ ──→ 3-2-1 ──→ 比赛
+  两屏独立       P0房主     同步等待     同步点      倒计时     独立操控
+  地图未创建     地图未创建    创建中...    地图已创建   321...GO!   比赛中
+```
+
+- **阶段1 - 选角色/kart（两屏独立）**：
+  - D0 显示 STK 原生选车界面，P0 选自己的 kart + 确认
+  - D2 显示 STK 原生选车界面，P1 选自己的 kart + 确认
+  - 两屏互不干扰，各自看到自己的 3D 模型和 ribbon 高亮
+- **阶段2 - 选赛道（房主 P0）**：
+  - D0 显示 STK 原生选赛道界面，P0 操作选择 + 确认
+  - D2 显示"等待房主选赛道..."
+- **阶段3 - 加载地图**：
+  - D0 创建 World/Track，两屏显示加载进度
+  - 地图加载完毕 → 自动进入阶段3.5
+- **阶段3.5 - P1 进入同步点** ⚠️ 关键：
+  - **必须确认 P1 也已进入地图**，不能 P0 自己就开始倒计时
+  - 两屏都看到地图后 → 自动进入阶段4
+- **阶段4 - 3-2-1 倒计时 → 开赛**：
+  - P0+P1 都进入地图后，两屏同时显示 3-2-1-GO 倒计时
+  - 倒计时结束 → 比赛正式开始，两屏各自独立操控
+- **P0 驱动状态机**：选车两屏都确认 → P0 选赛道 → 创建地图 → P1 也进入 → 倒计时 → 比赛
 - **双光标支持**：`SMouseInput.DeviceID` 区分两屏触摸，各自独立光标、各自操作 Widget
 
 ### F4. 比赛流程
@@ -61,7 +76,83 @@
 | F2 触控分离 | ✅ | SDL 统一路径，按 routedDevId 分流 P0/P1 |
 | F2 道具按钮 | ✅ | FIRE/NITRO/DRIFT/LOOK_BACK 各屏独立 |
 | F2 双屏 HUD | ✅ | minimap + timer + player list 全部两屏渲染 |
-| F3 选单流程(界面) | ⬜ | 双光标地基✅，菜单界面待接通 |
+| F3 选车(kart)独立两屏 | ✅ | ribbon高亮独立、3D模型独立、触控隔离 |
+| F3 选赛道(房主P0) | ⬜ | D0原生TracksAndGPScreen，D2"等待房主..." |
+| F3 加载地图+P1同步 | ⬜ | D0创建World，P1进入确认后→321 |
+| F3 321倒计时→开赛 | ⬜ | P0+P1都进入后两屏同时321→GO |
+| F3 双光标 | ✅ | DeviceID + curDisp匹配，菜单操作独立 |
+| F4 3-2-1 倒计时(渲染) | ✅ | 两屏都渲染 drawGlobalReadySetGo |
+| F4 比赛结束 | ✅ | 两屏都渲染 drawGlobalGoal |
+| F5 架构复用 | ✅ | 两屏共用 SDL→Irrlicht→STK 标准触控链路 |
+
+---
+
+## 实现方案：F3 选单流程接通
+
+### 核心思路
+原始 STK 桌面流程: `MainMenu → KartSelection → RaceSetup → TracksAndGP → TrackInfo → Race`
+双屏简化流程: `KartSelection → [skip RaceSetup] → TracksAndGP → [skip TrackInfo] → Race`
+
+### 改动点
+
+| # | 文件 | 改动 |
+|---|------|------|
+| 1 | `kart_selection.cpp:allPlayersDone()` | 双屏模式跳过 RaceSetupScreen，直接推 TracksAndGPScreen |
+| 2 | `tracks_and_gp_screen.cpp` | 双屏模式选赛道后直接 `startSingleRace()`，跳过 TrackInfoScreen |
+| 3 | `main.cpp` | 双屏模式 P0 选赛道时 D2 显示等待界面 |
+| 4 | `race_manager.cpp` | P1 进入世界同步检测 → 触发 321 倒计时 |
+
+### 状态机
+```
+选车(两屏确认) → 选赛道(P0选) → 创建世界 → P1进入✅ → 321 → 比赛
+       ↑              ↑           ↑         ↑       ↑
+   现有✅          改动1+3      改动4     改动4   现有✅
+                              改动2
+```
+
+---
+
+## 闭环验收步骤
+
+### Test 1: 选车 → 选赛道 过渡
+```bash
+# 1. 启动app
+adb shell am force-stop org.supertuxkart.stk && adb logcat -c
+adb shell am start -n org.supertuxkart.stk/.SuperTuxKartActivity
+sleep 12
+
+# 2. D2 选一个kart（P1）
+adb shell input -d 2 swipe 100 900 1600 900 2000
+
+# 3. D0 选一个kart（P0）
+adb shell input swipe 100 900 1600 900 2000
+
+# 4. 确认选车 → 截图验证阶段切换
+#    D0 应显示选赛道界面（TracksAndGP）
+#    D2 应显示"等待房主选赛道..."
+adb shell screencap -d 0 -p /sdcard/test1_d0.png
+adb shell screencap -d 2 -p /sdcard/test1_d2.png
+```
+**验收标准**: D0 截图有赛道列表，D2 截图有等待文字
+
+### Test 2: 选赛道 → 加载 → 321
+```bash
+# 5. P0 选赛道（点击第一个赛道）
+adb shell input tap 500 500   # 坐标需根据实际UI调整
+
+# 6. 验证进入加载/比赛
+sleep 5
+adb shell screencap -d 0 -p /sdcard/test2_d0.png  
+adb shell screencap -d 2 -p /sdcard/test2_d2.png
+adb logcat -d | grep "startSingleRace\|enterGameState\|startNew"
+```
+**验收标准**: 两屏截图有 3-2-1 倒计时或比赛画面，日志有 startSingleRace
+
+### Test 3: P1同步点验证
+```bash
+adb logcat -d | grep "P1.*enter\|sync\|both.*ready\|dual.*start"
+```
+**验收标准**: 日志确认 P1 也进入后才触发 321
 | F4 3-2-1 倒计时 | ✅ | 两屏都渲染 drawGlobalReadySetGo |
 | F4 比赛结束 | ✅ | 两屏都渲染 drawGlobalGoal |
 | F5 架构复用 | ✅ | 两屏共用 SDL→Irrlicht→STK 标准触控链路 |

@@ -75,6 +75,9 @@ protected:
       */
     bool m_game_master_confirmed;
 
+    /** Dual-screen: true after init() completes, prevent auto-confirm during init */
+    bool m_init_done;
+
     GUIEngine::PlayerKartWidget* m_removed_widget;
 
     GUIEngine::TextBoxWidget *m_search_box;

@@ -42,6 +42,7 @@
 #include "modes/overworld.hpp"
 #include "network/network_config.hpp"
 #include "states_screens/race_setup_screen.hpp"
+#include "states_screens/tracks_and_gp_screen.hpp"
 #include "utils/log.hpp"
 #include "utils/random_generator.hpp"
 #include "utils/string_utils.hpp"
@@ -132,6 +133,19 @@ void KartHoverListener::onSelectionChanged(DynamicRibbonWidget* theWidget,
     m_parent->m_kart_widgets[player_id].setKartInternalName(selectionID);
     m_parent->updateKartStats(player_id, selectionID);
     m_parent->validateKartChoices();
+
+#ifdef ANDROID
+    // Dual-screen: auto-confirm kart selection on touch.
+    // Only after init() is complete (skip programmatic setSelection during init).
+    {
+        extern bool g_dual_screen_mode;
+        if (g_dual_screen_mode && m_parent->m_init_done)
+        {
+            Log::info("KartHover", "auto-confirm: player_id=%d", player_id);
+            m_parent->playerConfirm(player_id);
+        }
+    }
+#endif
 }   // onSelectionChanged
 
 #if 0
@@ -304,6 +318,18 @@ void KartSelectionScreen::init()
 
     tabs->setActive(true);
 
+    static int s_init_count = 0;
+    s_init_count++;
+    Log::info("KartSelection", "init() called #%d, widgets=%d",
+              s_init_count, (int)m_kart_widgets.size());
+
+    // Dual-screen: hide waiting label initially
+    {
+        Widget* p1w = getWidget("p1_waiting");
+        if (p1w) p1w->setVisible(false);
+    }
+
+    Log::info("KartSelection", "init: clearing %d widgets", (int)m_kart_widgets.size());
     m_kart_widgets.clearAndDeleteAll();
 
     m_search_box = getWidget<TextBoxWidget>("search");
@@ -357,6 +383,38 @@ void KartSelectionScreen::init()
         {
             joinPlayer(input_manager->getDeviceManager()->getLatestUsedDevice(),
                 NULL/*player profile*/);
+
+#ifdef ANDROID
+            // Dual-screen: create P1 widget BEFORE setSelection to avoid
+            // setSelection callbacks from clearing m_kart_widgets.
+            extern bool g_dual_screen_mode;
+            if (g_dual_screen_mode)
+            {
+                Log::info("KartSelection", "init: dual-screen, creating P1 widget (before setSelection)");
+                KeyboardDevice* kbd1 = input_manager->getDeviceManager()->getKeyboard(1);
+                if (!kbd1) kbd1 = input_manager->getDeviceManager()->getKeyboard(0);
+                if (kbd1)
+                {
+                    joinPlayer(kbd1, NULL/*player profile*/);
+                    // Set display IDs: P0→0, P1→2
+                    m_kart_widgets[0].m_display_id = 0;
+                    m_kart_widgets[1].m_display_id = 2;
+                    // Move both widgets to full screen (no split)
+                    Widget* fullarea = getWidget("playerskarts");
+                    m_kart_widgets[0].move(fullarea->m_x, fullarea->m_y,
+                                           fullarea->m_w, fullarea->m_h);
+                    m_kart_widgets[1].move(fullarea->m_x, fullarea->m_y,
+                                           fullarea->m_w, fullarea->m_h);
+                    Log::info("KartSelection", "init: dual-screen setup done, widgets=%d",
+                              (int)m_kart_widgets.size());
+                }
+                else
+                {
+                    Log::error("KartSelection", "init: dual-screen failed - no keyboard device");
+                }
+            }
+#endif
+
             w->updateItemDisplay();
 
             // Player 0 select default kart
@@ -367,32 +425,10 @@ void KartSelectionScreen::init()
             }
 
 #ifdef ANDROID
-            // Dual-screen mode: create second PlayerKartWidget for P1 (Display 2)
-            extern bool g_dual_screen_mode;
             if (g_dual_screen_mode)
             {
-                Log::info("KartSelection", "init: dual-screen, creating P1 widget");
-                KeyboardDevice* kbd1 = input_manager->getDeviceManager()->getKeyboard(1);
-                if (!kbd1) kbd1 = input_manager->getDeviceManager()->getKeyboard(0);
-                if (kbd1)
-                {
-                    joinPlayer(kbd1, NULL/*player profile*/);
-                    w->setSelection(1, 1, true);
-                    // Set display IDs: P0→0, P1→2
-                    m_kart_widgets[0].m_display_id = 0;
-                    m_kart_widgets[1].m_display_id = 2;
-                    // Move both widgets to full screen (no split)
-                    Widget* fullarea = getWidget("playerskarts");
-                    m_kart_widgets[0].move(fullarea->m_x, fullarea->m_y,
-                                           fullarea->m_w, fullarea->m_h);
-                    m_kart_widgets[1].move(fullarea->m_x, fullarea->m_y,
-                                           fullarea->m_w, fullarea->m_h);
-                    Log::info("KartSelection", "init: dual-screen setup done, %d widgets", (int)m_kart_widgets.size());
-                }
-                else
-                {
-                    Log::error("KartSelection", "init: dual-screen failed - no keyboard device");
-                }
+                // P1 default kart
+                w->setSelection(1, 1, true);
             }
 #endif
         }
@@ -406,6 +442,8 @@ void KartSelectionScreen::init()
 #endif
         }
     }
+
+    m_init_done = true;
 }   // init
 
 // ----------------------------------------------------------------------------
@@ -459,17 +497,25 @@ bool KartSelectionScreen::joinPlayer(InputDevice* device, PlayerProfile* p)
     if (UserConfigParams::logGUI())
         Log::info("KartSelectionScreen",  "joinPlayer() invoked");
     extern bool g_dual_screen_mode;
-    if (!m_multiplayer && !first_player && !g_dual_screen_mode) return false;
+    Log::info("KartSelectionScreen", "joinPlayer: multiplayer=%d first=%d dual=%d widgets=%d",
+              (int)m_multiplayer, (int)first_player, (int)g_dual_screen_mode, (int)m_kart_widgets.size());
+    if (!m_multiplayer && !first_player && !g_dual_screen_mode)
+    {
+        Log::info("KartSelectionScreen", "joinPlayer: RETURN - not multiplayer, not first, not dual");
+        return false;
+    }
 
     DynamicRibbonWidget* w = getWidget<DynamicRibbonWidget>("karts");
     if (w == NULL)
     {
+        Log::info("KartSelectionScreen", "joinPlayer: RETURN - w=NULL");
         Log::error("KartSelectionScreen", "joinPlayer(): Called outside of "
                   "kart selection screen.");
         return false;
     }
     else if (device == NULL)
     {
+        Log::info("KartSelectionScreen", "joinPlayer: RETURN - device=NULL");
         if (!NetworkConfig::get()->isNetworkAIInstance())
         {
             Log::error("KartSelectionScreen", "joinPlayer(): Received null "
@@ -480,6 +526,7 @@ bool KartSelectionScreen::joinPlayer(InputDevice* device, PlayerProfile* p)
 
     if (StateManager::get()->activePlayerCount() >= MAX_PLAYER_COUNT)
     {
+        Log::info("KartSelectionScreen", "joinPlayer: RETURN - max players reached");
         Log::error("KartSelectionScreen", "Maximum number of players "
                   "reached");
         SFXManager::get()->quickSound( "anvil" );
@@ -534,12 +581,18 @@ bool KartSelectionScreen::joinPlayer(InputDevice* device, PlayerProfile* p)
                           kartsAreaWidget->m_y + kartsAreaWidget->m_h);
 
     // ---- Create player/kart widget
+    Log::info("KartSelectionScreen", "joinPlayer: creating PlayerKartWidget...");
     PlayerKartWidget* newPlayerWidget =
         new PlayerKartWidget(this, aplayer, kartsArea, m_kart_widgets.size(),
                              selected_kart_group);
 
     manualAddWidget(newPlayerWidget);
     m_kart_widgets.push_back(newPlayerWidget);
+    Log::info("KartSelectionScreen", "joinPlayer: widget created, size=%d ptr=%p",
+              (int)m_kart_widgets.size(), (void*)newPlayerWidget);
+    
+    // Verify widget stayed in the vector
+    Log::info("KartSelectionScreen", "joinPlayer: verify size=%d", (int)m_kart_widgets.size());
 
     newPlayerWidget->add();
     // From network kart selection, the player name is already defined
@@ -809,6 +862,7 @@ void KartSelectionScreen::playerConfirm(const int player_id)
     }
 
     // Mark this player as ready to start
+    Log::info("KartSelection", "playerConfirm: marking player_id=%d as ready", player_id);
     m_kart_widgets[player_id].markAsReady();
 
     if (player_id == PLAYER_ID_GAME_MASTER)
@@ -1370,7 +1424,24 @@ void KartSelectionScreen::allPlayersDone()
     }
     else
     {
-        RaceSetupScreen::getInstance()->push();
+#ifdef ANDROID
+        extern bool g_dual_screen_mode;
+        if (g_dual_screen_mode)
+        {
+            // Dual-screen: both confirmed → create world, both enter together.
+            // STK handles 3-2-1 countdown when all players are in the world.
+            RaceManager::get()->setMinorMode(RaceManager::MINOR_MODE_NORMAL_RACE);
+            RaceManager::get()->setDifficulty(RaceManager::DIFFICULTY_MEDIUM);
+            RaceManager::get()->setNumLaps(3);
+            // Use default track (track selection will be added later)
+            RaceManager::get()->setTrack("abyss");
+            RaceManager::get()->startSingleRace("abyss", 3, false);
+        }
+        else
+#endif
+        {
+            RaceSetupScreen::getInstance()->push();
+        }
     }
 }   // allPlayersDone
 
@@ -1758,6 +1829,33 @@ void KartSelectionScreen::onResize()
  */
 void KartSelectionScreen::syncDisplayWidgets(int display_id)
 {
+    // Dual-screen: if P1 is waiting, D2 shows "waiting" instead of kart selection
+    Widget* p1_waiting = getWidget("p1_waiting");
+    bool p1_is_waiting = false;
+#ifdef ANDROID
+    {
+        extern bool g_dual_screen_mode;
+        if (g_dual_screen_mode && m_kart_widgets.size() > 1 && m_kart_widgets[1].isReady())
+            p1_is_waiting = true;
+    }
+#endif
+
+    if (p1_is_waiting && display_id == 2)
+    {
+        // D2: P1 has confirmed, show waiting screen
+        if (p1_waiting) p1_waiting->setVisible(true);
+        // Hide all kart widgets
+        for (unsigned n = 0; n < m_kart_widgets.size(); n++)
+        {
+            m_kart_widgets[n].setVisible(false);
+            if (m_kart_widgets[n].m_model_view)
+                m_kart_widgets[n].m_model_view->setModelVisible(false);
+        }
+        return;
+    }
+
+    // Hide waiting label on D0 or when no one is waiting
+    if (p1_waiting) p1_waiting->setVisible(false);
     static int s_sync_log = 0;
     if (++s_sync_log <= 30)
         Log::info("KartSelection", "syncDisplayWidgets(display=%d) widgets=%d",
@@ -1767,6 +1865,19 @@ void KartSelectionScreen::syncDisplayWidgets(int display_id)
         int wd = m_kart_widgets[n].m_display_id;
         bool visible = (wd == -1 || wd == display_id);
         m_kart_widgets[n].setVisible(visible);
+        
+        // Dual-screen: when not visible, move off-screen to prevent rendering overlap.
+        // When visible, restore to the full-area position.
+        Widget* fullarea = getWidget("playerskarts");
+        if (!visible && wd != -1)
+        {
+            m_kart_widgets[n].move(5000, 0, m_kart_widgets[n].m_w, m_kart_widgets[n].m_h);
+        }
+        else if (visible && fullarea)
+        {
+            m_kart_widgets[n].move(fullarea->m_x, fullarea->m_y,
+                                   fullarea->m_w, fullarea->m_h);
+        }
 
         // Log Irrlicht-level visibility to confirm it's actually set
         irr::gui::IGUIElement* el = m_kart_widgets[n].getIrrlichtElement();
