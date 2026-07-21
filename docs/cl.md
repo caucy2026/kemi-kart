@@ -1,5 +1,97 @@
 # STK 双屏异显 — 版本记录
 
+## v1.6.2 (2026-07-21) — 双屏选车稳定性根治 + 启动流程精简 + APP图标完善
+
+### 改动概要
+
+- **双屏选车"点击即确认"回退**：删除 `onSelectionChanged` 中自动确认逻辑，恢复"选中→继续"两步分离；删除渲染帧依赖的 hover 过滤。
+- **启动弹窗全部跳过**：三项 user_config 默认值修改，首次启动直接进选角色界面。
+- **APP 图标替换为 STK 企鹅**：全 density 替换 + 自适应图删除 + 桌面 SQLite 缓存清理。
+- **资产提取自动修复**：`files.txt` 补 1.6 版本标记文件，新装不再崩溃。
+- **代码全量入 Git**：`.gitignore` 移除 `android/res` 忽略，全部资源可追溯。
+
+### 用户可见改动
+
+- **点一次头像必选中**：主屏副屏均稳定响应，不需多次点击。
+- **点头像不会自动进下一步**：必须点击 Continue 才确认。
+- **首次启动无弹窗**：操控选择/驱动警告/联网许可三个弹窗全部跳过，直接进选角色。
+- **APP 桌面图标**：显示 STK 企鹅徽标（蓝色圆形+Tux）。
+- **比赛中退出**：点击"退出比赛"直接关闭 App，不再返回主菜单。
+
+### 关键改动
+
+#### 1. 双屏事件路由稳定化 (`event_handler.cpp`)
+
+| 改动 | 说明 |
+|------|------|
+| 删除 `curDisp`-`expectedDev` 匹配过滤 | 原过滤用 `getCurrentDisplayId()` 判断"当前渲染帧"，双屏交替渲染时会把正常 D2 触摸事件丢弃 |
+| 新增 mouse 事件更新 `m_last_touch_device` | 确保按钮点击激活路径使用正确的设备号 |
+| 简化 ribbon hover 路由 | 仅按 `m_last_touch_device` 判断，不再参考渲染帧 |
+
+#### 2. 选车确认逻辑修复 (`kart_selection.cpp`)
+
+| 改动 | 说明 |
+|------|------|
+| **删除** `onSelectionChanged` 中自动确认 | 这是之前"副屏偶发不生效"时加的临时补丁，副作用是点头像立刻进下一级 |
+| **删除** pid 非法时的 fallback 猜测 | 原逻辑用 `curDisp` 猜测 pid，双屏切换时会串路由；改为直接 return |
+| **删除** 每帧重复 `TracksAndGPScreen::syncDisplayWidgets` 调用 | 每帧调两次造成界面抖动，打断事件链路 |
+| **删除** 每帧 widget 状态刷屏日志 | 日志瞬间淹没缓冲区，真正有效事件不可见 |
+
+#### 3. 启动弹窗跳过 (`user_config.hpp`)
+
+| 配置项 | 原值 | 新值 | 对应弹窗 |
+|--------|------|------|----------|
+| `m_multitouch_controls` | 0 (UNDEFINED) | 1 (STEERING_WHEEL) | 操控方式选择 |
+| `m_old_driver_popup` | true | false | 显卡驱动警告 |
+| `m_internet_status` | 0 (NOT_ASKED) | 2 (NOT_ALLOWED) | 联网/隐私许可 |
+
+注意：已安装设备需删除 `home/supertuxkart/config-0.10/` 目录才生效（旧配置覆盖新默认值）。
+
+#### 4. 资产自动提取 (`android/assets/files.txt`)
+
+- `data/supertuxkart.1.6` 文件在 `assets/data/` 中存在，但 5902 行的 `files.txt` 提取清单中缺失
+- 加到 `files.txt` 末尾，确保新安装后自动解压，不再因缺失标记文件 fatal crash
+
+#### 5. Git 仓库完善 (`.gitignore`)
+
+- 删除 `.gitignore` 第 70 行 `android/res` 忽略规则
+- `git add -f` 强制追踪 68 个 res 文件（图标、strings、styles、banner）
+- 新增 `docs/cl.md` 本变更日志
+
+### 图标问题排查全过程
+
+| 步骤 | 操作 | 结论 |
+|------|------|------|
+| 1 | 替换 `android/res/drawable*/icon.png` 所有 density | 桌面未更新 |
+| 2 | `adb uninstall` + 重装 + 重启设备 | 桌面未更新 |
+| 3 | 从 APK 解压验证 MD5 = STK 企鹅源图 | APK 正确 |
+| 4 | 从设备 `/data/app/.../base.apk` 提取验证 MD5 | 设备 APK 正确 |
+| 5 | `pm list packages` 发现 `com.kart.stk` 旧包 | 旧包占位，卸载 |
+| 6 | 发现 `app_icons.db` SQLite 缓存 | 桌面不读 APK，用 DB 里的 BLOB |
+| 7 | `DELETE FROM icons` + `pm clear launcher3` | 图标终于更新 |
+| 8 | 纯红图标测试验证 DB 缓存机制 | 确认根因 |
+
+**根因**: RK356x 定制 ROM 的 `com.android.launcher3` 将图标 BLOB 存入 SQLite `app_icons.db`，卸载重装、重启、`pm clear` 均不刷新，必须 `DELETE FROM icons`。
+
+### 📁 改动文件明细
+
+| 文件 | 改动类型 | 说明 |
+|------|----------|------|
+| `src/guiengine/event_handler.cpp` | 修改 | 删除 render-pass 过滤 + 实时 m_last_touch_device |
+| `src/states_screens/kart_selection.cpp` | 修改 | 删自动确认 + 删 fallback + 删重复 sync + 删刷屏日志 |
+| `src/states_screens/kart_selection.hpp` | 修改 | clearTrackSelectionWaitingState 等 |
+| `src/states_screens/dialogs/race_paused_dialog.cpp` | 修改 | Android exit → main_loop->abort() |
+| `src/states_screens/track_info_screen.cpp/.hpp` | 修改 | 双屏等待 + EscapePressed 处理 |
+| `src/states_screens/tracks_and_gp_screen.cpp/.hpp` | 修改 | 双屏地图解耦 + 等待界面 |
+| `src/guiengine/engine.cpp` | 修改 | 等待文字覆盖层 + 计时器 |
+| `src/config/user_config.hpp` | 修改 | 三项默认值跳过首次弹窗 |
+| `android/assets/files.txt` | 修改 | 补 data/supertuxkart.1.6 |
+| `android/res/drawable*/icon*.png` | 替换 | 全 density STK 企鹅 + 删除 icon.xml |
+| `.gitignore` | 修改 | 删除 android/res 忽略规则 |
+| `docs/cl.md` | 新增 | 本变更日志 |
+
+---
+
 ## v1.6.1 (2026-07-21) — 副屏加载动画 + UI 文案标准化
 
 ### 改动概要
