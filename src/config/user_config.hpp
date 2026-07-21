@@ -555,7 +555,7 @@ namespace UserConfigParams
             "Auto acceleration for multitouch controls.") );
 
     PARAM_PREFIX IntUserConfigParam         m_multitouch_controls
-            PARAM_DEFAULT( IntUserConfigParam(0, "multitouch_controls",
+            PARAM_DEFAULT( IntUserConfigParam(1, "multitouch_controls",
             &m_multitouch_group,
             "Multitouch mode: 0 = undefined, 1 = steering wheel, 2 = accelerometer, 3 = gyroscope"));
 
@@ -694,7 +694,7 @@ namespace UserConfigParams
         PARAM_DEFAULT(BoolUserConfigParam(false, "enable_dof",
         &m_video_group, "Enable Depth of Field"));
     PARAM_PREFIX BoolUserConfigParam        m_old_driver_popup
-        PARAM_DEFAULT(BoolUserConfigParam(true, "old_driver_popup",
+        PARAM_DEFAULT(BoolUserConfigParam(false, "old_driver_popup",
         &m_video_group, "Determines if popup message about too old drivers should be displayed."));
     PARAM_PREFIX FloatUserConfigParam       m_scale_rtts_factor
         PARAM_DEFAULT(FloatUserConfigParam(1.0f, "scale_rtts_factor",
@@ -1327,7 +1327,7 @@ namespace UserConfigParams
     // ---- Internet related
 
     PARAM_PREFIX IntUserConfigParam        m_internet_status
-            PARAM_DEFAULT(  IntUserConfigParam(0, "enable_internet",
+            PARAM_DEFAULT(  IntUserConfigParam(2, "enable_internet",
                                                "Status of internet: 0 user "
                                                "wasn't asked, 1: allowed, 2: "
                                                "not allowed") );
