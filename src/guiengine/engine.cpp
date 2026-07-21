@@ -696,12 +696,14 @@ namespace GUIEngine
 #include "utils/debug.hpp"
 #include "utils/string_utils.hpp"
 #include "utils/stk_process.hpp"
+#include "utils/time.hpp"
 #include "utils/translation.hpp"
 
 #include <algorithm>
 #include <iostream>
 #include <assert.h>
 #include <mutex>
+#include <cwchar>
 
 #include <IrrlichtDevice.h>
 #include <IGUIEnvironment.h>
@@ -713,6 +715,7 @@ using namespace irr::video;
 #ifdef ANDROID
 extern bool g_dual_screen_show_p0_wait_message;
 extern bool g_dual_screen_show_p1_wait_message;
+static uint64_t g_dual_screen_p1_wait_start_ms = 0;
 #endif
 
 namespace GUIEngine
@@ -1375,6 +1378,42 @@ namespace GUIEngine
         Log::info("GUIEngine", "drawAll start");
         g_env->drawAll();
         Log::info("GUIEngine", "drawAll done");
+
+#ifdef ANDROID
+        const uint64_t now_ms = StkTime::getMonoTimeMs();
+        if (::g_dual_screen_show_p1_wait_message)
+        {
+            if (g_dual_screen_p1_wait_start_ms == 0)
+                g_dual_screen_p1_wait_start_ms = now_ms;
+        }
+        else
+        {
+            g_dual_screen_p1_wait_start_ms = 0;
+        }
+
+        // Dual-screen waiting text overlay (C++ title font for proper Chinese rendering)
+        const bool show_p0_wait = (::g_dual_screen_show_p0_wait_message &&
+                                   Private::g_current_display_id == 0);
+        const bool show_p1_wait = (::g_dual_screen_show_p1_wait_message &&
+                                   Private::g_current_display_id == 2);
+        if (show_p0_wait || show_p1_wait)
+        {
+            const core::dimension2d<u32>& sz = screen_size;
+            wchar_t msg[128];
+            if (show_p0_wait)
+            {
+                swprintf(msg, 128, L"等待副屏玩家确认赛车…");
+            }
+            else
+            {
+                const uint64_t elapsed_s = (g_dual_screen_p1_wait_start_ms == 0)
+                    ? 0 : ((now_ms - g_dual_screen_p1_wait_start_ms) / 1000);
+                swprintf(msg, 128, L"等待主屏玩家选择赛道… 已等待%llus", elapsed_s);
+            }
+            core::rect<s32> pos(sz.Width/2, sz.Height/2, sz.Width/2, sz.Height/2);
+            getTitleFont()->draw(msg, pos, video::SColor(255, 255, 255, 255), true, true);
+        }
+#endif
 
         if (gamestate == GAME && !is_loading && !dialog_opened)
         {

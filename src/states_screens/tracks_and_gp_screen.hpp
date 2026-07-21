@@ -57,6 +57,9 @@ public:
     /** \brief implement callback from parent class GUIEngine::Screen */
     virtual void init() OVERRIDE;
 
+    /** \brief implement callback from parent class GUIEngine::Screen */
+    virtual bool onEscapePressed() OVERRIDE;
+
     /** Dual-screen: show different content per display */
     virtual void syncDisplayWidgets(int display_id) OVERRIDE;
 

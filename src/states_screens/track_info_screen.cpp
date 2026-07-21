@@ -17,6 +17,7 @@
 //  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #include "states_screens/track_info_screen.hpp"
+#include "states_screens/tracks_and_gp_screen.hpp"
 
 #include "challenges/unlock_manager.hpp"
 #include "config/player_manager.hpp"
@@ -133,6 +134,8 @@ void TrackInfoScreen::setTrack(Track *track)
  */
 void TrackInfoScreen::init()
 {
+    Log::info("TrackInfoScreen", "init() called, track=%s", 
+        m_track ? m_track->getIdent().c_str() : "NULL");
     m_record_this_race = false;
 
     const int max_arena_players = std::min(m_track->getMaxArenaPlayers(), unsigned(stk_config->m_max_karts));
@@ -458,6 +461,32 @@ TrackInfoScreen::~TrackInfoScreen()
 {
 }   // ~TrackInfoScreen
 
+
+// ----------------------------------------------------------------------------
+bool TrackInfoScreen::onEscapePressed()
+{
+#ifdef ANDROID
+    extern bool g_dual_screen_mode;
+    if (g_dual_screen_mode)
+    {
+        // Restore D0 screen so tracks_and_gp renders on D0 after pop
+        GUIEngine::setDisplay0Screen(TracksAndGPScreen::getInstance());
+    }
+#endif
+    return true;  // allow pop
+}
+
+// ----------------------------------------------------------------------------
+void TrackInfoScreen::syncDisplayWidgets(int display_id)
+{
+#ifdef ANDROID
+    extern bool g_dual_screen_mode;
+    if (!g_dual_screen_mode) return;
+    Log::info("TrackInfoScreen", "syncDisplayWidgets(display=%d)", display_id);
+    // D2 keeps waiting-only experience, D0 keeps full track details + confirm UI.
+    setWidgetsVisible(display_id != 2);
+#endif
+}
 
 // ----------------------------------------------------------------------------
 void TrackInfoScreen::tearDown()

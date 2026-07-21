@@ -41,6 +41,7 @@
 #include "network/network_string.hpp"
 #include "network/stk_host.hpp"
 #include "race/race_manager.hpp"
+#include "main_loop.hpp"
 #include "states_screens/help/help_screen_1.hpp"
 #include "states_screens/main_menu_screen.hpp"
 #include "states_screens/race_gui_base.hpp"
@@ -338,6 +339,10 @@ GUIEngine::EventPropagation
             {
                 STKHost::get()->shutdown();
             }
+#ifdef ANDROID
+              main_loop->abort();
+              return GUIEngine::EVENT_BLOCK;
+#endif
             RaceManager::get()->exitRace();
             RaceManager::get()->setAIKartOverride("");
 

@@ -247,6 +247,11 @@ bool EventHandler::OnEvent (const SEvent &event)
              event.EventType == EET_ACCELEROMETER_EVENT ||
              event.EventType == EET_GYROSCOPE_EVENT)
     {
+#ifdef ANDROID
+        if (g_dual_screen_mode && event.EventType == EET_MOUSE_INPUT_EVENT)
+            m_last_touch_device = event.MouseInput.DeviceID;
+#endif
+
         // Remember the mouse position per device
         if (event.EventType == EET_MOUSE_INPUT_EVENT &&
             event.MouseInput.Event == EMIE_MOUSE_MOVED)
@@ -991,23 +996,11 @@ EventPropagation EventHandler::onGUIEvent(const SEvent& event)
                     // give the mouse "game master" priviledges.
                     // Dual-screen: map display to player for independent ribbon control.
                     int playerID = PLAYER_ID_GAME_MASTER;
-                    bool skip = false;
 #ifdef ANDROID
-                    if (g_dual_screen_mode) {
-                        // IMPORTANT: only process ribbon hover if the touch
-                        // device matches the current display frame. Internal
-                        // GUI events (DeviceID=0) flood every frame and would
-                        // otherwise cause cross-talk between P0 and P1.
-                        int curDisp = GUIEngine::getCurrentDisplayId();
-                        int expectedDev = (curDisp == 2) ? 2 : 0;
-                        if ((int)m_last_touch_device == expectedDev) {
-                            if (m_last_touch_device == 2) playerID = 1;
-                        } else {
-                            skip = true;
-                        }
-                    }
+                    if (g_dual_screen_mode && m_last_touch_device == 2)
+                        playerID = 1;
 #endif
-                    if (!skip) {
+                    {
                     static int s_ribbon_hover_cnt = 0;
                     if (++s_ribbon_hover_cnt <= 30)
                         Log::info("EventHandler", "ribbonHover: lastTouchDev=%d playerID=%d curDisp=%d",

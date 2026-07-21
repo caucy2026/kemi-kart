@@ -149,6 +149,9 @@ public:
     /** Returns the current instance */
     static KartSelectionScreen* getRunningInstance();
 
+    /** Dual-screen: clear temporary track-selection waiting state. */
+    void clearTrackSelectionWaitingState();
+
     /** \brief implement callback from parent class GUIEngine::Screen */
     virtual void loadedFromFile() OVERRIDE;
 

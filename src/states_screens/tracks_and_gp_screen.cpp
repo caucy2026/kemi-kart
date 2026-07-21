@@ -31,6 +31,7 @@
 #include "race/grand_prix_manager.hpp"
 #include "race/race_manager.hpp"
 #include "states_screens/state_manager.hpp"
+#include "states_screens/kart_selection.hpp"
 #include "states_screens/track_info_screen.hpp"
 #include "states_screens/gp_info_screen.hpp"
 #include "states_screens/dialogs/message_dialog.hpp"
@@ -64,17 +65,10 @@ void TracksAndGPScreen::eventCallback(Widget* widget, const std::string& name,
 #ifdef ANDROID
         extern bool g_dual_screen_mode;
         if (g_dual_screen_mode)
-        {
-            extern bool g_dual_screen_show_p1_wait_message;
-            g_dual_screen_show_p1_wait_message = false;
-            RaceManager::get()->startSingleRace(selection, 3, false);
-        }
-        else
+            GUIEngine::setDisplay0Screen(NULL);  // clear D0 override so TrackInfoScreen widgets work
 #endif
-        {
-            TrackInfoScreen::getInstance()->setTrack(track_manager->getTrack(selection));
-            TrackInfoScreen::getInstance()->push();
-        }
+        TrackInfoScreen::getInstance()->setTrack(track_manager->getTrack(selection));
+        TrackInfoScreen::getInstance()->push();
     }   // name=="random_track"
 
     // -- track selection screen
@@ -124,18 +118,10 @@ void TracksAndGPScreen::eventCallback(Widget* widget, const std::string& name,
 #ifdef ANDROID
                 extern bool g_dual_screen_mode;
                 if (g_dual_screen_mode)
-                {
-                    extern bool g_dual_screen_show_p1_wait_message;
-                    g_dual_screen_show_p1_wait_message = false;
-                    RaceManager::get()->startSingleRace(track->getIdent(), 3,
-                                                        false);
-                }
-                else
+                    GUIEngine::setDisplay0Screen(NULL);  // clear D0 override so TrackInfoScreen widgets work
 #endif
-                {
-                    TrackInfoScreen::getInstance()->setTrack(track);
-                    TrackInfoScreen::getInstance()->push();
-                }
+                TrackInfoScreen::getInstance()->setTrack(track);
+                TrackInfoScreen::getInstance()->push();
             }
         }   // if clicked_track
 
@@ -306,6 +292,24 @@ void TracksAndGPScreen::init()
     STKTexManager::getInstance()->unsetTextureErrorMessage();
 }   // init
 
+    // ------------------------------------------------------------------------
+    bool TracksAndGPScreen::onEscapePressed()
+    {
+    #ifdef ANDROID
+        extern bool g_dual_screen_mode;
+        if (g_dual_screen_mode)
+        {
+            // Leaving track-selection mode should stop D2 waiting countdown.
+            KartSelectionScreen* ks = KartSelectionScreen::getRunningInstance();
+            if (ks) ks->clearTrackSelectionWaitingState();
+            GUIEngine::setDisplay0Screen(NULL);
+        }
+    #endif
+        return true;
+    }
+
+    // ------------------------------------------------------------------------
+
 // ----------------------------------------------------------------------------
 #ifdef ANDROID
 void TracksAndGPScreen::syncDisplayWidgets(int display_id)
@@ -318,10 +322,12 @@ void TracksAndGPScreen::syncDisplayWidgets(int display_id)
 
     if (display_id == 2) // D2: show waiting
     {
+        if (track_selection_ui) track_selection_ui->setVisible(false);
         if (waiting_label) waiting_label->setVisible(true);
     }
     else // D0: show track selection
     {
+        if (track_selection_ui) track_selection_ui->setVisible(true);
         if (waiting_label) waiting_label->setVisible(false);
     }
 }

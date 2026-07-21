@@ -117,6 +117,8 @@ public:
     virtual void loadedFromFile() OVERRIDE;
     virtual void tearDown() OVERRIDE;
     virtual void unloaded() OVERRIDE;
+    virtual bool onEscapePressed() OVERRIDE;
+    virtual void syncDisplayWidgets(int display_id) OVERRIDE;
     virtual void eventCallback(GUIEngine::Widget *,const std::string &name ,
                                const int player_id) OVERRIDE;
 

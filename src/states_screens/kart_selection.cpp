@@ -171,6 +171,19 @@ KartSelectionScreen* KartSelectionScreen::getRunningInstance()
 
 // ----------------------------------------------------------------------------
 
+void KartSelectionScreen::clearTrackSelectionWaitingState()
+{
+    m_p0_selecting_track = false;
+#ifdef ANDROID
+    extern bool g_dual_screen_show_p0_wait_message;
+    extern bool g_dual_screen_show_p1_wait_message;
+    g_dual_screen_show_p0_wait_message = false;
+    g_dual_screen_show_p1_wait_message = false;
+#endif
+}
+
+// ----------------------------------------------------------------------------
+
 void KartSelectionScreen::loadedFromFile()
 {
     m_game_master_confirmed    = false;
@@ -808,10 +821,14 @@ void KartSelectionScreen::playerConfirm(const int player_id)
 
     if (selection == RANDOM_KART_ID && w->getItems().size() == 1)
     { // Random kart only, do nothing
+        Log::warn("KartSelection", "playerConfirm: ignored, only random kart available (pid=%d)",
+                  player_id);
         return;
     }
     if (StringUtils::startsWith(selection, ID_LOCKED) && !m_multiplayer)
     {
+        Log::warn("KartSelection", "playerConfirm: locked kart selected (pid=%d, sel=%s)",
+                  player_id, selection.c_str());
         unlock_manager->playLockSound();
         return;
     }
@@ -819,6 +836,7 @@ void KartSelectionScreen::playerConfirm(const int player_id)
     if (m_kart_widgets[player_id].getKartInternalName().size() == 0 ||
         m_kart_widgets[player_id].getKartInternalName() == RibbonWidget::NO_ITEM_ID)
     {
+        Log::warn("KartSelection", "playerConfirm: empty/no-item selection (pid=%d)", player_id);
         SFXManager::get()->quickSound( "anvil" );
         return;
     }
@@ -851,6 +869,8 @@ void KartSelectionScreen::playerConfirm(const int player_id)
                 Log::warn("KartSelectionScreen", "You can't select this identity "
                        "or kart, someone already took it!!");
 
+            Log::warn("KartSelection", "playerConfirm: conflict with ready player=%d (pid=%d)",
+                      n, player_id);
             SFXManager::get()->quickSound( "anvil" );
             return;
         }
@@ -1132,9 +1152,16 @@ void KartSelectionScreen::eventCallback(Widget* widget,
     // passes may have switched by the time Irrlicht delivers this callback.
 #ifdef ANDROID
     extern bool g_dual_screen_mode;
-    const int pid = player_id;
+    int pid = player_id;
     if (g_dual_screen_mode)
     {
+        if (pid < 0 || pid >= (int)m_kart_widgets.size())
+        {
+            Log::warn("KartSelection", "eventCallback: invalid pid=%d widgets=%d name='%s'",
+                      player_id, (int)m_kart_widgets.size(), name.c_str());
+            return;
+        }
+
         if (m_p0_selecting_track && pid == PLAYER_ID_GAME_MASTER)
         {
             TracksAndGPScreen::getInstance()->eventCallback(widget, name, pid);
@@ -1144,6 +1171,12 @@ void KartSelectionScreen::eventCallback(Widget* widget,
 #else
     const int pid = player_id;
 #endif
+
+    if (name == "karts" || name == "continue" || name == "back")
+    {
+        Log::info("KartSelection", "eventCallback(key): name='%s' pid=%d curDisp=%d widgets=%d",
+                  name.c_str(), pid, GUIEngine::getCurrentDisplayId(), (int)m_kart_widgets.size());
+    }
 
     // don't allow changing group after someone confirmed
     if (name == "kartgroups" && !m_game_master_confirmed)
@@ -1171,6 +1204,7 @@ void KartSelectionScreen::eventCallback(Widget* widget,
         DynamicRibbonWidget* w = getWidget<DynamicRibbonWidget>("karts");
         assert(w != NULL);
         const std::string selection = w->getSelectionIDString(pid);
+        Log::info("KartSelection", "karts-select: pid=%d sel='%s'", pid, selection.c_str());
         if (getWidget<CheckBoxWidget>("favorite")->getState() &&
             pid == PLAYER_ID_GAME_MASTER && !m_game_master_confirmed &&
             !selection.empty())
@@ -1205,6 +1239,7 @@ void KartSelectionScreen::eventCallback(Widget* widget,
             // Just select the kart, don't auto-confirm.
             // Confirmation is done via the "continue" button or keyboard Enter.
             // (Previously called playerConfirm(pid) here, which locked the choice)
+
         }
     }
     else if (name == "kart_class" && !m_game_master_confirmed)
@@ -1216,7 +1251,17 @@ void KartSelectionScreen::eventCallback(Widget* widget,
     else if (name == "continue")
     {
         if (m_kart_widgets.size() > unsigned(pid))
+        {
+            DynamicRibbonWidget* w = getWidget<DynamicRibbonWidget>("karts");
+            const std::string selection = w ? w->getSelectionIDString(pid) : "<null-widget>";
+            Log::info("KartSelection", "continue: pid=%d selection='%s'", pid, selection.c_str());
             playerConfirm(pid);
+        }
+        else
+        {
+            Log::warn("KartSelection", "continue ignored: invalid pid=%d widgets=%d",
+                      pid, (int)m_kart_widgets.size());
+        }
     }
     else if (name == "back")
     {
@@ -1281,7 +1326,7 @@ void KartSelectionScreen::onFocusChanged(GUIEngine::Widget* previous,
     {
         if (m_kart_widgets[i].getPlayerID() == playerID)
         {
-            if (!playerID == PLAYER_ID_GAME_MASTER
+            if (playerID != PLAYER_ID_GAME_MASTER
                 && GUIEngine::isFocusedForPlayer(kart_class, playerID))
             {
                 if (previous->getType() == WTYPE_RIBBON)
@@ -1466,13 +1511,11 @@ void KartSelectionScreen::allPlayersDone()
             g_dual_screen_show_p0_wait_message = false;
             g_dual_screen_show_p1_wait_message = true;
             m_p0_selecting_track = true;
-            TracksAndGPScreen* tracks_screen = TracksAndGPScreen::getInstance();
-            if (!tracks_screen->isLoaded()) tracks_screen->loadFromFile();
-            tracks_screen->beforeAddingWidget();
-            tracks_screen->addWidgets();
-            tracks_screen->init();
-            GUIEngine::setDisplay0Screen(tracks_screen);
-            Log::info("KartSelection", "Both players confirmed: D0 selects a track, D2 waits");
+            // Push track selection screen onto the stack so back navigation
+            // from TrackInfo returns to track preview instead of kart select.
+            GUIEngine::setDisplay0Screen(NULL);
+            TracksAndGPScreen::getInstance()->push();
+            Log::info("KartSelection", "Both players confirmed: push track screen (D0 selects track, D2 waits)");
             return;
         }
         else
@@ -1920,8 +1963,6 @@ void KartSelectionScreen::syncDisplayWidgets(int display_id)
     if (p0_waiting)
         p0_waiting->setVisible(false);
 
-    if (p0_selecting_track)
-        TracksAndGPScreen::getInstance()->syncDisplayWidgets(display_id);
     TracksAndGPScreen* tracks_screen = TracksAndGPScreen::getInstance();
     tracks_screen->setWidgetsVisible(p0_selecting_track && display_id == 0);
     if (p0_selecting_track)
@@ -1941,10 +1982,6 @@ void KartSelectionScreen::syncDisplayWidgets(int display_id)
     // Dual-screen: if P1 is waiting, D2 shows "waiting" instead of kart selection
     // Hide waiting label on D0 or when no one is waiting
     if (p1_waiting) p1_waiting->setVisible(false);
-    static int s_sync_log = 0;
-    if (++s_sync_log <= 30)
-        Log::info("KartSelection", "syncDisplayWidgets(display=%d) widgets=%d",
-                  display_id, (int)m_kart_widgets.size());
     for (unsigned n = 0; n < m_kart_widgets.size(); n++)
     {
         int wd = m_kart_widgets[n].m_display_id;
@@ -1965,12 +2002,6 @@ void KartSelectionScreen::syncDisplayWidgets(int display_id)
             m_kart_widgets[n].updateSizeNow(fullarea->m_x, fullarea->m_y,
                                              fullarea->m_w, fullarea->m_h);
         }
-
-        // Log Irrlicht-level visibility to confirm it's actually set
-        irr::gui::IGUIElement* el = m_kart_widgets[n].getIrrlichtElement();
-        bool irrVis = (el != NULL) ? el->isVisible() : false;
-        Log::info("KartSelection", "  widget[%d] disp=%d vis=%d irrElem=%p irrVis=%d",
-                  n, wd, (int)visible, (void*)el, (int)irrVis);
 
         // Sync 3D models
         if (m_kart_widgets[n].m_model_view != NULL)
