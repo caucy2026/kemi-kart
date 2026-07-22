@@ -65,6 +65,11 @@ namespace GUIEngine
 
         unsigned m_rtt_size;
 
+        /** Timestamp (ms) of the last RTT render. Used to avoid rendering
+         *  the RTT multiple times per logical frame in dual-screen mode
+         *  (where update() is called once per display pass). */
+        uint64_t m_last_rtt_render_ms;
+
     public:
 
         LEAK_CHECK()

@@ -213,7 +213,197 @@ override fun onRestart() {
 }
 ```
 
-### 2.7 双屏通信（Go3DGlobe 模式）
+### 2.6b 双屏任务隐藏最近列表（不显示在后台任务中）
+
+**需求**：双屏 app 切换到后台后，不在 Android 最近任务列表中显示。
+
+**双 Activity 方案**（Go3DGlobe 架构）：
+
+副屏 Activity 的 Manifest 配置：
+```xml
+<activity
+    android:name=".GlobeActivity"
+    android:excludeFromRecents="true"
+    android:autoRemoveFromRecents="true"
+    ... />
+```
+
+启动副屏时使用 `FLAG_ACTIVITY_NEW_TASK`：
+```kotlin
+val intent = Intent(this, GlobeActivity::class.java)
+    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+startActivity(intent, options.toBundle())
+```
+
+> **说明**：`excludeFromRecents="true"` 使整个任务不出现在最近列表。  
+> 配合 `autoRemoveFromRecents="true"`，任务结束后自动移除。  
+> 注意：不要同时使用 `finishAffinity()`，否则 C++ NDK 线程可能出现竞态。
+
+**Presentation API 方案**（STK SDL 架构）：
+
+STK 使用 `android.app.Presentation` 而非独立 Activity，只需在主 Activity 的 Manifest 中配置：
+```xml
+<activity
+    android:name=".SuperTuxKartActivity"
+    android:launchMode="singleTask"
+    android:excludeFromRecents="true"
+    android:autoRemoveFromRecents="true"
+    ... />
+```
+
+Presentation 生命周期跟随主 Activity：
+- `onStop()` → `mPresentation.dismiss()` → 副屏消失
+- `onStart()` → `mPresentation.show()` → 副屏恢复
+- `finish()` → `mPresentation.destroy()` → 完全退出
+
+> **关键**：`excludeFromRecents` 只隐藏不杀任务，配合 `dismiss()/show()` 管理 Presentation，避免 C++ 原生线程竞态。
+
+### 2.6c 终极措施：强制杀进程（HOME 键完全退出）
+
+**适用场景**：
+- C++ NDK 应用，原生线程（SDL 主循环）异步退出时存在竞态
+- HOME 后第一次冷启动状态错乱（只有主屏、缺副屏），第二次才正常
+- 需要保证每次 HOME → 重新点击图标都是**完全干净**的冷启动
+
+**方案**：`Process.killProcess()` 硬杀进程。不走异步线程清理，直接终止进程。
+
+```java
+import android.os.Process;
+
+@Override
+protected void onUserLeaveHint() {
+    super.onUserLeaveHint();
+    // 1. 先关闭副屏 Presentation
+    if (mPresentation != null) {
+        mPresentation.dismiss();
+        mPresentation = null;
+    }
+    // 2. 清理 Activity 任务栈
+    finishAffinity();
+    // 3. 硬杀进程 — 确保无任何线程残留
+    Process.killProcess(Process.myPid());
+}
+```
+
+**为什么不用 `nativeSendQuit()` 或 `System.exit()`**：
+
+| 方法 | 问题 |
+|------|------|
+| `nativeSendQuit()` | 异步发送退出信号，SDL 线程退出需要时间，快速重启时旧线程未清理完 |
+| `System.exit(0)` | 走 Runtime shutdown hook，NDK 库可能不响应，残留内存映射 |
+| `finishAffinity()` 单独 | 只关 Activity，C++ 线程仍在运行 |
+| `Process.killProcess()` ✅ | Linux 级别 SIGKILL，瞬间释放所有线程、内存、文件描述符 |
+
+**AndroidManifest 配合**：
+```xml
+<activity
+    android:excludeFromRecents="true"
+    android:autoRemoveFromRecents="true"
+    ... />
+```
+HOMe 后不显示在最近任务，避免用户从列表恢复半死进程。
+
+> **⚠️ 注意**：这是终极措施，适用于 NDK 游戏等有独立原生线程的应用。  
+> 纯 Java/Kotlin 应用不需要，用 `finishAffinity()` 即可。  
+> **已被 STK 双屏卡丁车项目实战验证（RK356x / Mali-G52 / Android 12 / SDL2 Presentation 架构）。**
+
+### 2.6d STK 特例：C++ NDK + SDLActivity 的 D2→D0 防呆重定向
+
+**背景**：STK 项目继承自 `org.libsdl.app.SDLActivity`，使用 Presentation API 实现双屏（D0 为主渲染屏，D2 为副屏 Presentation）。双屏启动器可能从 D2 误启动应用，而 SDL 架构要求 D0 为主屏初始化，否则主屏灰色无渲染、副屏仍显示桌面。
+
+**与 Go3DGlobe 防呆（2.4 节）的关键区别**：
+
+| 差异点 | Go3DGlobe (双 Activity) | STK (SDL + Presentation) |
+|--------|------------------------|--------------------------|
+| 基类 | 自定义 MainActivity | `SDLActivity` (C++ NDK) |
+| 副屏方案 | 独立 Activity | `android.app.Presentation` |
+| `setLaunchDisplayId` | 公开 API `options.launchDisplayId` | 反射（compile SDK 中 `@hide`） |
+| 生命周期约束 | `super.onCreate()` 后检测 | **必须先 `super.onCreate()`** 否则崩溃 |
+
+**致命踩坑：`SuperNotCalledException`**
+
+在 `onCreate()` 中检测到 D2 → `finish()` + `startActivity()` → `return`，如果 `return` 之前没有调用 `super.onCreate()`，Android 会抛出：
+
+```
+android.util.SuperNotCalledException:
+  Activity did not call through to super.onCreate()
+```
+
+这是因为 Android 在 `ActivityThread.performLaunchActivity()` 中检查 `super.onCreate()` 是否被调用，未调用则直接崩溃。崩溃对话框显示在主屏上即"主屏灰色"的假象——实际是 App 已崩溃，SDL 从未初始化。
+
+**正确实现**（SuperTuxKartActivity.java）：
+
+```java
+@Override
+protected void onCreate(Bundle savedInstanceState) {
+    // ⚠️ 必须无条件先调用 super.onCreate()，满足 Android 生命周期约束
+    super.onCreate(savedInstanceState);
+
+    // 防呆：如果被副屏启动器误启动到非主屏，强制迁回主屏
+    final int launchedDisplayId = getWindowManager()
+        .getDefaultDisplay().getDisplayId();
+    if (launchedDisplayId != Display.DEFAULT_DISPLAY) {
+        Log.w("STK", "Launched on display " + launchedDisplayId
+            + " — redirecting to D0");
+
+        // 反射调用隐藏 API setLaunchDisplayId 指定目标屏
+        try {
+            final android.app.ActivityOptions opts =
+                android.app.ActivityOptions.makeBasic();
+            final java.lang.reflect.Method m = opts.getClass()
+                .getMethod("setLaunchDisplayId", int.class);
+            m.invoke(opts, Display.DEFAULT_DISPLAY);
+            final Intent intent = new Intent(this, SuperTuxKartActivity.class)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                        | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+            startActivity(intent, opts.toBundle());
+        } catch (Exception e) {
+            // 反射失败降级：直接 startActivity
+            // （可能仍在 D2，会再次进入防呆分支，形成安全循环直到成功）
+            Log.w("STK", "setLaunchDisplayId failed: " + e.getMessage());
+            final Intent intent = new Intent(this, SuperTuxKartActivity.class)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                        | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+            startActivity(intent);
+        }
+        // 先 startActivity 再 finish，避免旧窗口先销毁导致进程被提前终止
+        finish();
+        return;
+    }
+
+    // D0 正常路径：继续初始化
+    m_initial_orientation = getRequestedOrientation();
+}
+```
+
+**执行时序**：
+
+```
+D2启动器 → STK(在D2)
+  → super.onCreate()          // ① 满足生命周期（避免 SuperNotCalledException）
+  → 检测到 D2
+  → 反射 setLaunchDisplayId(0) // ② 指定新 Activity 在 D0 启动
+  → startActivity(NEW_TASK|CLEAR_TASK)  // ③ 在 D0 启动新实例
+  → finish()                   // ④ 销毁 D2 上的旧实例
+  → 新实例在 D0 启动
+    → super.onCreate()
+    → 检测到 D0 → 正常初始化 SDL → 双屏正常
+```
+
+**为什么 `startActivity` 必须在 `finish()` 之前**：
+
+`finish()` 触发 Activity 销毁流程，如果先 `finish()` 再 `startActivity()`，可能因生命周期回调（如 `onUserLeaveHint()`）触发 `Process.killProcess()` 提前杀进程，导致 `startActivity()` 未执行。
+
+**`FLAG_ACTIVITY_CLEAR_TASK` 的作用**：
+
+清除 D2 任务栈，确保新 Activity 不受旧任务 Display 偏好的污染。配合 `FLAG_ACTIVITY_NEW_TASK` 在新任务栈中启动。
+
+**降级路径**：
+
+如果反射 `setLaunchDisplayId` 失败（某些定制 ROM 移除了该 API），catch 分支直接 `startActivity` 不指定 Display。新 Activity 可能仍在 D2 启动，会再次进入防呆分支，形成安全循环：每次尝试都会 `startActivity` + `finish()`，直到某次运气好落到 D0。实测 RK356x / Android 12 上反射稳定成功，降级路径极少触发。
+
+> **适用条件**：C++ NDK 应用 + SDLActivity/Presentation API 架构 + 双屏启动器存在。  
+> 纯 Java/Kotlin 双 Activity 架构使用 2.4 节的公开 API 方案即可。
 
 | 方向 | 方式 | 用途 |
 |------|------|------|

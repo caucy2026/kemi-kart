@@ -1,8 +1,13 @@
 package org.supertuxkart.stk;
 
+import android.util.Log;
 import org.libsdl.app.SDLActivity;
+import android.app.ActivityOptions;
+import android.content.Intent;
 import android.content.res.Configuration;
 import android.os.Bundle;
+import android.os.Process;
+import android.view.Display;
 
 public class SuperTuxKartActivity extends SDLActivity {
     private float m_top_padding = 0.0f;
@@ -26,7 +31,45 @@ public class SuperTuxKartActivity extends SDLActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        // 防呆：如果被副屏启动器误启动到非主屏，强制迁回主屏
+        final int launchedDisplayId = getWindowManager().getDefaultDisplay().getDisplayId();
+        if (launchedDisplayId != Display.DEFAULT_DISPLAY) {
+            Log.w("STK", "Launched on display " + launchedDisplayId + " — redirecting to D0");
+            // 用反射调用隐藏 API setLaunchDisplayId 确保新 Activity 在 D0 启动
+            try {
+                final android.app.ActivityOptions opts = android.app.ActivityOptions.makeBasic();
+                final java.lang.reflect.Method m = opts.getClass()
+                    .getMethod("setLaunchDisplayId", int.class);
+                m.invoke(opts, Display.DEFAULT_DISPLAY);
+                final Intent intent = new Intent(this, SuperTuxKartActivity.class)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+                startActivity(intent, opts.toBundle());
+            } catch (Exception e) {
+                // 反射失败降级：直接 startActivity（可能仍在 D2，但会再次防呆退出）
+                Log.w("STK", "setLaunchDisplayId failed: " + e.getMessage());
+                final Intent intent = new Intent(this, SuperTuxKartActivity.class)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+                startActivity(intent);
+            }
+            finish();
+            return;
+        }
+
         m_initial_orientation = getRequestedOrientation();
+    }
+
+    /** HOME key → full exit (same as in-game "退出").
+     *  Hard-kill the process to guarantee clean cold start on next launch. */
+    @Override
+    protected void onUserLeaveHint() {
+        super.onUserLeaveHint();
+        if (mPresentation != null) {
+            mPresentation.dismiss();
+        }
+        finishAffinity();
+        // Force-kill ensures no SDL thread residue on next cold start
+        android.os.Process.killProcess(android.os.Process.myPid());
     }
 
     public int getScreenSize() {

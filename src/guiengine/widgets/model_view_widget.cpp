@@ -22,6 +22,7 @@
 #include "guiengine/widgets/model_view_widget.hpp"
 #include "graphics/irr_driver.hpp"
 #include "graphics/render_target.hpp"
+#include "utils/time.hpp"
 
 #include <IAnimatedMesh.h>
 #include <IAnimatedMeshSceneNode.h>
@@ -51,6 +52,7 @@ m_rtt_size(rtt_size)
     m_rotation_mode = ROTATE_OFF;
     m_render_info = std::make_shared<GE::GERenderInfo>();
     m_angle = 0;
+    m_last_rtt_render_ms = 0;
 
     // so that the base class doesn't complain there is no icon defined
     m_properties[PROP_ICON]="gui/icons/main_help.png";
@@ -185,6 +187,14 @@ void ModelViewWidget::update(float delta)
 #ifdef SERVER_ONLY
     return;
 #else
+    // Dual-screen: update() is called once per display pass (D0 + D2),
+    // but the RTT result is identical. Skip redundant renders within
+    // the same logical frame to avoid 2x-4x GPU overhead on Mali-G52.
+    const uint64_t now_ms = StkTime::getMonoTimeMs();
+    if (now_ms - m_last_rtt_render_ms < 5)
+        return;
+    m_last_rtt_render_ms = now_ms;
+
     if (m_render_target == NULL)
     {
         std::string name = "model view ";
