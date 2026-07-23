@@ -246,11 +246,8 @@ void ShaderBasedRenderer::renderSceneDeferred(scene::ICameraSceneNode * const ca
     m_lighting_passes.updateLightsInfo(camnode, dt);
     PROFILER_POP_CPU_MARKER();
 
-    // Shadows
-    if (CVS->isShadowEnabled() && hasShadow)
-    {
-        renderShadows();
-    }
+    // Shadows are pre-rendered once per frame (camera-independent) in render()
+    (void)hasShadow; // kept for API compatibility; shadow rendering is now shared
 
     glDepthMask(GL_TRUE);
     glDepthFunc(GL_LEQUAL);
@@ -320,18 +317,15 @@ void ShaderBasedRenderer::renderSceneDeferred(scene::ICameraSceneNode * const ca
         PROFILER_PUSH_CPU_MARKER("- Glow", 0xFF, 0xFF, 0x00);
         ScopedGPUTimer Timer(irr_driver->getGPUTimer(Q_GLOW));
         renderGlow();
-        // To half
+        // Single blit: full → quarter (saves 1 FBO bind + 1 blit vs full→half→quarter)
         FrameBuffer::blit(m_rtts->getFBO(FBO_RGBA_2),
-            m_rtts->getFBO(FBO_HALF2), GL_COLOR_BUFFER_BIT, GL_LINEAR);
-        // To quarter
-        FrameBuffer::blit(m_rtts->getFBO(FBO_HALF2),
             m_rtts->getFBO(FBO_QUARTER1), GL_COLOR_BUFFER_BIT, GL_LINEAR);
         PROFILER_POP_CPU_MARKER();
     } // end glow
 
     m_rtts->getFBO(FBO_COLORS).bind();
-    glClear(UserConfigParams::m_glow ? GL_COLOR_BUFFER_BIT :
-        GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+    // No glClear here — the combine diffuse fullscreen quad covers every pixel.
+    // Stencil is unused in the subsequent passes when glow is active.
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT,
         GL_TEXTURE_2D, 0, 0);
 
@@ -739,6 +733,24 @@ void ShaderBasedRenderer::render(float dt, bool is_loading)
     }
 
     assert(Camera::getNumCameras() < MAX_PLAYER_COUNT + 1);
+    
+    // ── Shadow maps: render ONCE per frame (camera-independent) ──
+    // Shadow cascades are from the sun's perspective, not the view camera.
+    // Sharing across cameras cuts shadow GPU cost in half (8→4 passes for dual-screen).
+    bool has_shadow = track->hasShadows() && CVS->isShadowEnabled()
+                      && CVS->isDeferredEnabled();
+    if (has_shadow)
+    {
+        PROFILER_PUSH_CPU_MARKER("- Shared Shadow Pass", 0x4F, 0x2F, 0x4F);
+        SP::sp_cur_player = 0;
+        Camera *cam0 = Camera::getCamera(0);
+        scene::ICameraSceneNode *camnode0 = cam0->getCameraSceneNode();
+        irr_driver->getSceneManager()->setActiveCamera(camnode0);
+        computeMatrixesAndCameras(camnode0, m_rtts->getWidth(), m_rtts->getHeight());
+        m_draw_calls.prepareDrawCalls(camnode0);
+        renderShadows();
+        PROFILER_POP_CPU_MARKER();
+    }
     
 #ifdef ANDROID
     extern bool dualScreenIsReady();
