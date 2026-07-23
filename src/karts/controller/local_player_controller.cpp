@@ -100,6 +100,7 @@ LocalPlayerController::LocalPlayerController(AbstractKart *kart,
     m_auto_drive_wanted = UserConfigParams::m_multitouch_auto_drive;
     m_auto_drive_stuck_time = 0.0f;
     m_auto_drive_last_pos = Vec3(0,0,0);
+    m_auto_drive_blend = 0.0f;
     initParticleEmitter();
 }   // LocalPlayerController
 
@@ -150,6 +151,7 @@ void LocalPlayerController::reset()
     m_has_started = false;
     m_auto_drive_active = false;
     m_auto_drive_stuck_time = 0.0f;
+    m_auto_drive_blend = 0.0f;
     if (m_auto_drive_ai)
         m_auto_drive_ai->reset();
 }   // reset
@@ -311,24 +313,40 @@ void LocalPlayerController::update(int ticks)
             // transitions.
             if (!m_auto_drive_active)
             {
+                // ---- OPTIMISATION A: Reuse AI, don't delete/recreate ----
+                // Previously we deleted the old SkiddingAI and created a
+                // fresh one on every re-engagement.  This caused:
+                //   • A frame of zero controls between delete and new
+                //   • Stale computePath() from old constructor
+                // Now we reuse the same instance and just reset it.
                 if (m_auto_drive_ai)
-                    delete m_auto_drive_ai;
-                m_auto_drive_ai = new SkiddingAI(m_kart);
                 {
-                    const DriveGraph* dg = DriveGraph::get();
-                    const int num_nodes = dg ? dg->getNumNodes() : -1;
-                    const std::string track_name = Track::getCurrentTrack()
-                        ? Track::getCurrentTrack()->getIdent().c_str() : "??";
+                    m_auto_drive_ai->reset();
                     Log::info("LocalPlayerController",
-                        "Auto-drive AI created | track=%s driveGraphNodes=%d "
-                        "worldKart=%d speed=%.1f pos=(%.1f,%.1f,%.1f)",
-                        track_name.c_str(), num_nodes,
-                        m_kart->getWorldKartId(), m_kart->getSpeed(),
-                        m_kart->getXYZ().getX(), m_kart->getXYZ().getY(),
-                        m_kart->getXYZ().getZ());
+                        "Auto-drive AI reused (reset) | worldKart=%d",
+                        m_kart->getWorldKartId());
+                }
+                else
+                {
+                    m_auto_drive_ai = new SkiddingAI(m_kart);
+                    {
+                        const DriveGraph* dg = DriveGraph::get();
+                        const int num_nodes = dg ? dg->getNumNodes() : -1;
+                        const std::string track_name = Track::getCurrentTrack()
+                            ? Track::getCurrentTrack()->getIdent().c_str() : "??";
+                        Log::info("LocalPlayerController",
+                            "Auto-drive AI created | track=%s driveGraphNodes=%d "
+                            "worldKart=%d speed=%.1f pos=(%.1f,%.1f,%.1f)",
+                            track_name.c_str(), num_nodes,
+                            m_kart->getWorldKartId(), m_kart->getSpeed(),
+                            m_kart->getXYZ().getX(), m_kart->getXYZ().getY(),
+                            m_kart->getXYZ().getZ());
+                    }
                 }
 
                 m_auto_drive_active = true;
+                m_auto_drive_blend  = 0.0f;   // start blend from player→AI
+
                 const DriveGraph* dg = DriveGraph::get();
                 const int nodes = dg ? dg->getNumNodes() : -1;
                 Log::info("LocalPlayerController",
@@ -406,8 +424,35 @@ void LocalPlayerController::update(int ticks)
             const KartControl* ai_ctrl = m_auto_drive_ai->getControls();
             if (ai_ctrl)
             {
-                m_controls->setSteer(ai_ctrl->getSteer());
-                m_controls->setAccel(ai_ctrl->getAccel());
+                // ---- OPTIMISATION A: smooth player→AI steer blend ----
+                // Ramp blend from 0→1 over ~0.3 seconds so the wheel
+                // doesn't suddenly snap from the player's last steer
+                // angle to the AI's target.  This makes the handover
+                // feel natural instead of jerky.
+                float dt = stk_config->ticks2Time(ticks);
+                if (m_auto_drive_blend < 1.0f)
+                {
+                    m_auto_drive_blend += dt / 0.3f;  // 0.3s blend time
+                    if (m_auto_drive_blend > 1.0f) m_auto_drive_blend = 1.0f;
+                }
+
+                float player_steer = m_controls->getSteer(); // last player value
+                float ai_steer     = ai_ctrl->getSteer();
+                float blended_steer = player_steer * (1.0f - m_auto_drive_blend)
+                                    + ai_steer     * m_auto_drive_blend;
+                m_controls->setSteer(blended_steer);
+
+                // ---- OPTIMISATION B: curve pre-deceleration ----
+                // If the AI is steering hard (>70%), it's trying to
+                // navigate a curve.  Reduce acceleration so the kart
+                // has time to rotate — prevents full-speed corner entry.
+                float ai_accel = ai_ctrl->getAccel();
+                float abs_steer = fabsf(ai_steer);
+                if      (abs_steer > 0.85f) ai_accel *= 0.25f;  // tight turn
+                else if (abs_steer > 0.60f) ai_accel *= 0.55f;  // moderate
+                else if (abs_steer > 0.35f) ai_accel *= 0.80f;  // gentle
+                m_controls->setAccel(ai_accel);
+
                 if (ai_ctrl->getBrake())
                     m_controls->setBrake(true);
                 else

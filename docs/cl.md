@@ -1,5 +1,93 @@
 # STK 双屏异显 — 版本记录
 
+## v1.6.5 (2026-07-23) — AI 优化：平滑接管 + 弯道减速 + 默认角色修复
+
+### AI 优化：方案 A — 复用 + 平滑过渡
+
+**改动**：不再 delete/recreate `SkiddingAI` 实例，改为复用 + `reset()`。
+
+```text
+修复前：松手 → delete AI → new AI → 立即切到 AI 方向（可能一抖）
+修复后：松手 → AI.reset() → 0.3s 内 steer 从玩家值渐变到 AI 值
+```
+
+**代码**（`local_player_controller.cpp`）：
+
+```cpp
+// 复用 AI，不再 delete/new
+if (m_auto_drive_ai)
+    m_auto_drive_ai->reset();    // ← 替代 delete + new
+else
+    m_auto_drive_ai = new SkiddingAI(m_kart);
+
+m_auto_drive_blend = 0.0f;       // ← 启动 0.3s blend
+
+// 平滑过渡
+m_auto_drive_blend += dt / 0.3f;  // 0→1 over 0.3s
+steer = player_steer * (1-blend) + ai_steer * blend;
+```
+
+**新增字段**：`m_auto_drive_blend`（`local_player_controller.hpp`）
+
+### AI 优化：方案 B — 弯道预减速
+
+AI 打方向越狠 → 提前收油，避免全速冲弯。
+
+```cpp
+if      (abs_steer > 0.85f) accel *= 0.25f;  // 急弯：大幅减速
+else if (abs_steer > 0.60f) accel *= 0.55f;  // 中弯
+else if (abs_steer > 0.35f) accel *= 0.80f;  // 缓弯
+// else: 直道全速
+```
+
+### 默认角色修复：P1 默认第二个角色
+
+**症状**：副屏显示第二个角色，但点击"继续"确认的是第一个。必须手动点一次才正确。
+
+**调试过程**：
+
+1. init 代码已设 `w->setSelection(1, 1, true)`（P0=0, P1=1），视觉上正确
+2. 日志显示 `onSelectionChanged: pid=1 sel=amanda` 回调产生
+3. 但 `m_kart_widgets[1].getKartInternalName()` 为空 → 确认的是第一个
+
+**第一层**：`KartHoverListener::onSelectionChanged()` 的跨屏过滤器
+
+init 阶段 `getLastTouchDevice()` 返回 0（默认，无真实触摸），过滤器算出
+`expected_player=0`，把 `player_id=1` 的回调 discard。P1 的 `setKartInternalName()`
+从未被调用。
+
+修复：在跨屏过滤条件中加入 `m_parent->m_init_done` 判断——init 阶段不过滤。
+
+**第二层**：`m_init_done` 未初始化（根因）
+
+C++ 不会自动给 `bool` 成员变量赋 `false`。`m_init_done` 持有随机垃圾值，
+有概率已经是 `true`，导致第一层修复失效。
+
+修复：构造函数中显式 `m_init_done = false;`
+
+```cpp
+KartSelectionScreen::KartSelectionScreen(...) {
+    ...
+    m_init_done = false;  // ← 必须显式初始化
+}
+```
+
+**验证**：
+```
+P0 continue: widgetSel='adiumy' ✅
+P1 continue: widgetSel='amanda' ✅
+```
+
+### 改动文件
+
+| 文件 | 改动 |
+|---|---|
+| `src/karts/controller/local_player_controller.cpp` | AI 复用替代 delete/new + 0.3s blend + 弯道减速 |
+| `src/karts/controller/local_player_controller.hpp` | 新增 `m_auto_drive_blend` 字段 |
+| `src/states_screens/kart_selection.cpp` | 跨屏过滤器加 `m_init_done` 判断 + 构造函数初始化 |
+
+---
+
 ## v1.6.4 (2026-07-23) — 自动驾驶 AI 走直线根因修复
 
 ### 症状

@@ -73,6 +73,8 @@ private:
     float       m_auto_drive_stuck_time;
     /** Last position for stuck detection (checks actual movement, not speed). */
     Vec3        m_auto_drive_last_pos;
+    /** Blend timer for smooth player→AI steer transition (0=player, 1=AI). */
+    float       m_auto_drive_blend;
 
     SFXBase     *m_wee_sound;
     SFXBuffer   *m_bzzt_sound;

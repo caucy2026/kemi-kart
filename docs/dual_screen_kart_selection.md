@@ -354,6 +354,7 @@ Java Presentation 创建
 | 12 | 两屏自动驾驶按钮不能独立 | 自动驾驶复用按钮 ID 5，与已有 FIRE 按钮 ID 冲突；D2 克隆时两个按钮一起被重映射 | 使用唯一 ID 100/101，仅映射自动驾驶按钮 |
 | 13 | ON/OFF 图标反复混乱 | 根据文件名猜图，且存在第三张 `auto_drive_on.png` 干扰 | 固定 `auto_drive.png`=绿色 ON、`auto_drive_off.png`=灰色 OFF，第三张不加载 |
 | 14 | **自动驾驶 AI 只走直线** | `PlayerController::steer()` 与 `SkiddingAI` 抢同一份 `m_controls`——每帧 `steer()` 把方向往 0 拉，AI 无法累积足够的转角来过弯 | 见下方 "## 自动驾驶 AI：走直线根因分析" |
+| 15 | P1 默认角色视觉正确但确认的是第一个 | `m_init_done` 未初始化（C++ 不自动赋 false），跨屏过滤器在 init 阶段随机生效/失效，导致 P1 的 `setKartInternalName()` 有时被丢弃 | 构造函数显式 `m_init_done = false;` + 过滤器加 `m_init_done` 判断 |
 
 ## 自动驾驶 AI：走直线根因分析（v1.6.4 实机验证）
 
@@ -448,6 +449,61 @@ if (!m_auto_drive_active)
 | 异常 | `AI-ZERO` | 连续 3s 零输出 | 可能的 DriveGraph 问题告警 |
 
 调试命令：`adb logcat -d | grep -E 'AI-diag|AI-path|AI-ZERO|Auto-drive'`
+
+### AI 优化：平滑接管 + 弯道减速（v1.6.5）
+
+#### 方案 A：AI 实例复用 + 平滑过渡
+
+**问题**：每次玩家松手重新接管 AI 时，旧的 `SkiddingAI` 被 delete 再 new，导致一帧内
+控制量为零，且新 AI 的 `computePath()` 可能与当前位置不同步。
+
+**修复**：
+- 首次创建 AI 后不再 delete，重新接管时调用 `m_auto_drive_ai->reset()` 复用同一实例
+- 新增 `m_auto_drive_blend` 字段，0.3 秒内从玩家最后 steer 值渐变到 AI 目标值
+
+```cpp
+// 复用 AI
+if (m_auto_drive_ai)
+    m_auto_drive_ai->reset();   // 不复用 delete+new
+else
+    m_auto_drive_ai = new SkiddingAI(m_kart);
+m_auto_drive_blend = 0.0f;
+
+// 平滑过渡
+m_auto_drive_blend += dt / 0.3f;  // 0→1 over 300ms
+steer = player_steer * (1-blend) + ai_steer * blend;
+```
+
+#### 方案 B：弯道预减速
+
+AI steer 越大 → 弯越急 → 提前收油，避免全速冲弯。
+
+```cpp
+if      (abs_steer > 0.85f) accel *= 0.25f;  // 急弯
+else if (abs_steer > 0.60f) accel *= 0.55f;  // 中弯
+else if (abs_steer > 0.35f) accel *= 0.80f;  // 缓弯
+// else: 直道全速
+```
+
+### 默认角色 P0/P1 分离（v1.6.5）
+
+**问题**：主屏 (P0) 默认第一个角色，副屏 (P1) 默认第二个角色——视觉上正确，
+但 P1 点击"继续"确认的是第一个。必须手动点一次选择才正确。
+
+**根因链**：
+1. `KartHoverListener::onSelectionChanged()` 的跨屏过滤器在 init 阶段丢弃了 P1 的回调
+2. `m_init_done` 未在构造函数初始化，C++ 不会自动赋 false，持有随机垃圾值
+
+**修复**：
+- 跨屏过滤条件加 `m_parent->m_init_done` 判断——init 阶段不过滤
+- 构造函数显式 `m_init_done = false;`
+
+```cpp
+KartSelectionScreen::KartSelectionScreen(...) {
+    ...
+    m_init_done = false;  // ← C++ 必须显式初始化
+}
+```
 
 ## 自动驾驶回归验收
 

@@ -100,12 +100,18 @@ void KartHoverListener::onSelectionChanged(DynamicRibbonWidget* theWidget,
     extern bool g_dual_screen_mode;
     if (g_dual_screen_mode)
     {
-        const GUIEngine::EventHandler* eh = GUIEngine::EventHandler::get();
-        if (eh)
+        // Only filter cross-display events after init is complete.
+        // During init, setSelection(1, 1) for P1 would otherwise be
+        // dropped because getLastTouchDevice() returns 0 (no real touch
+        // has occurred yet).
+        if (m_parent->m_init_done)
         {
-            const int expected_player = (eh->getLastTouchDevice() == 2) ? 1 : 0;
-            if (player_id != expected_player)
+            const GUIEngine::EventHandler* eh = GUIEngine::EventHandler::get();
+            if (eh)
             {
+                const int expected_player = (eh->getLastTouchDevice() == 2) ? 1 : 0;
+                if (player_id != expected_player)
+                {
                 static int s_cross_filter_log = 0;
                 if (++s_cross_filter_log <= 30)
                     Log::info("KartHover", "drop cross-display callback: pid=%d expected=%d lastTouchDev=%d",
@@ -113,7 +119,8 @@ void KartHoverListener::onSelectionChanged(DynamicRibbonWidget* theWidget,
                 return;
             }
         }
-    }
+        }  // if(m_parent->m_init_done)
+    }  // if(g_dual_screen_mode)
 #endif
 
     static int s_sel_log = 0;
@@ -180,6 +187,7 @@ KartSelectionScreen::KartSelectionScreen(const char* filename) : Screen(filename
     m_from_overworld       = false;
     m_go_to_overworld_next = false;
     m_p0_selecting_track   = false;
+    m_init_done            = false;
 }   // KartSelectionScreen
 
 // ============================================================================
