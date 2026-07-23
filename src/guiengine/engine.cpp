@@ -1369,15 +1369,12 @@ namespace GUIEngine
         // Dual-screen: sync widget visibility for current display before draw
         if (Private::g_current_display_id >= 0 && getCurrentScreen())
         {
-            Log::info("GUIEngine", "syncDisplayWidgets for display %d", Private::g_current_display_id);
             getCurrentScreen()->syncDisplayWidgets(Private::g_current_display_id);
         }
 
         // let irrLicht do the rest (the Skin object will be called for
         // further render)
-        Log::info("GUIEngine", "drawAll start");
         g_env->drawAll();
-        Log::info("GUIEngine", "drawAll done");
 
 #ifdef ANDROID
         const uint64_t now_ms = StkTime::getMonoTimeMs();

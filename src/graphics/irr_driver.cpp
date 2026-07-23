@@ -2334,22 +2334,12 @@ void IrrDriver::update(float dt, bool is_loading)
                 if (GUIEngine::getCurrentScreen())
                     GUIEngine::getCurrentScreen()->syncDisplayWidgets(2);
                 // 2) Process input — only P1 receives events
-                static int s_pass2_input_cnt = 0;
-                if (++s_pass2_input_cnt <= 3) {
-                    Log::info("irr_driver", "Pass D2: BEFORE input_update, curDisp=%d input_mgr=%p",
-                              GUIEngine::getCurrentDisplayId(), (void*)input_manager);
-                }
                 if (input_manager)
                     input_manager->update(dt);
-                else if (s_pass2_input_cnt <= 3)
-                    Log::warn("irr_driver", "Pass D2: input_manager is NULL!");
                 // 3) Render to D2 surface
-                Log::info("irr_driver", "Pass D2: beginScene");
                 m_video_driver->beginScene(/*backBuffer clear*/ true, /*zBuffer*/ true,
                                            video::SColor(255,100,101,140));
-                Log::info("irr_driver", "Pass D2: render");
                 GUIEngine::render(dt, is_loading);
-                Log::info("irr_driver", "Pass D2: swap");
                 dualScreenSwapBuffers();
                 dualScreenRestorePrimary();
             }
@@ -2363,12 +2353,9 @@ void IrrDriver::update(float dt, bool is_loading)
             if (input_manager)
                 input_manager->update(dt);
             // 3) Render to D0 surface
-            Log::info("irr_driver", "Pass D0: beginScene");
             m_video_driver->beginScene(/*backBuffer clear*/ true, /*zBuffer*/ true,
                                        video::SColor(255,100,101,140));
-            Log::info("irr_driver", "Pass D0: render");
             GUIEngine::render(dt, is_loading);
-            Log::info("irr_driver", "Pass D0: endScene");
             m_video_driver->endScene();
 
             GUIEngine::setCurrentDisplayId(-1);
