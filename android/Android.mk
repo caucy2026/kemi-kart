@@ -374,6 +374,16 @@ LOCAL_CFLAGS       := -I../lib/angelscript/include      \
                       -DANDROID_PACKAGE_CLASS_NAME=\"$(PACKAGE_CLASS_NAME)\"
 LOCAL_CPPFLAGS     := -std=gnu++0x
 
+# ── Platform-specific optimization: RK3566/RK3568 (Cortex-A55 + Mali-G52) ──
+ifeq ($(TARGET_ARCH_ABI), arm64-v8a)
+  LOCAL_ARM_NEON   := true
+  LOCAL_CFLAGS     += -O3 -mcpu=cortex-a55 -flto=thin \
+                      -fomit-frame-pointer -funroll-loops -fstrict-aliasing
+  LOCAL_CPPFLAGS   += -O3 -mcpu=cortex-a55 -flto=thin \
+                      -fomit-frame-pointer -funroll-loops -fstrict-aliasing
+  LOCAL_LDFLAGS    += -flto=thin -O3 -mcpu=cortex-a55
+endif
+
 LOCAL_STATIC_LIBRARIES := irrlicht bullet enet angelscript mcpp SDL2 \
                           vorbisfile vorbis ogg openal curl libmbedtls       \
                           libmbedcrypto libmbedx509 sheenbidi                \
