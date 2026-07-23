@@ -18,6 +18,14 @@ out vec4 o_final_color;
 void main()
 {
     vec2 tc = gl_FragCoord.xy / u_screen;
+    float depth = texture(depth_stencil, tc).x;
+    if (depth == 1.0)
+    {
+        vec4 ls = texture(light_scatter, tc);
+        o_final_color = ls + bg_color * (1.0 - ls.a);
+        return;
+    }
+
     vec4 diffuseMatColor = texture(diffuse_color, tc);
 
     // Polish map is stored in normal color framebuffer .z
@@ -43,7 +51,6 @@ void main()
     vec4 color_1 = vec4(tmp + (emitMapValue * emitCol), 1.0);
 
     // Fog
-    float depth = texture(depth_stencil, tc).x;
     vec4 xpos = getPosFromUVDepth(vec3(tc, depth), u_inverse_projection_matrix);
     float dist = length(xpos.xyz);
     // fog density
@@ -52,12 +59,6 @@ void main()
 
     // Additively blend the color by fog
     color_1 = color_1 + vec4(fog, factor);
-
-    // For skybox blending later
-    if (depth == 1.0)
-    {
-        color_1 = bg_color;
-    }
 
     // Light scatter (alpha blend function: (GL_ONE, GL_ONE_MINUS_SRC_ALPHA))
     vec4 ls = texture(light_scatter, tc);

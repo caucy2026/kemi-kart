@@ -620,6 +620,9 @@ void RaceGUIBase::renderGlobal(float dt)
 void RaceGUIBase::drawPerformanceStats()
 {
 #ifdef ANDROID
+    if (!UserConfigParams::m_display_fps)
+        return;
+
     updatePerformanceStats();
 
     gui::ScalableFont* font = GUIEngine::getSmallFont();

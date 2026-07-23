@@ -1,5 +1,48 @@
 # STK 双屏异显 — 版本记录
 
+## v1.6.8 (2026-07-23) — 天空像素提前返回 + FPS 开关统一联动
+
+### 结论
+
+- 官方「显示帧速率」复选框已同时控制两套 FPS 显示：顶部官方 `FPS: ...` 和右上角自定义 `FPS/CPU/GPU/MEM/FRAME/CAM/SWAP`。打开同时显示，关闭同时消失，共用同一持久化参数 `show_fps`（默认 `false`）。
+- 天空像素在 deferred 最终合成 shader 中提前返回，避免冗余的 diffuse/normal/SSAO/IBL 采样和雾计算，数学结果与原路径等价。
+
+### 关键改动
+
+1. `combine_diffuse_color.frag`：深度 `1.0` 的 sky 像素直接输出 `light_scatter + bg_color * (1 - alpha)` 后 return，跳过后续全部纹理采样和光照计算。
+2. `race_gui_base.cpp:drawPerformanceStats()`：入口新增 `if (!UserConfigParams::m_display_fps) return;`，自定义性能面板与官方 FPS 开关联动。
+3. `main.cpp`：双屏性能测试地图固定为 `black_forest`，替代原 `abyss`。
+
+### 联动机制
+
+| 层级 | 官方 FPS | 自定义面板 | 控制点 |
+|---|---:|---:|---|
+| 持久化 | `show_fps` in `config.xml` | 同一参数 | `BoolUserConfigParam m_display_fps` |
+| UI | 界面设置 → 显示帧速率 checkbox | 同一 checkbox | `options_screen_ui.cpp:showfps` |
+| 保存 | `OptionsScreenUI::tearDown()` | 同一调用 | `user_config->saveConfig()` |
+| 绘制 | `engine.cpp: irr_driver->displayFPS()` | `race_gui_base.cpp: drawPerformanceStats()` | 均检查 `m_display_fps` |
+
+无新增配置项、无新增保存调用、无重复数据源。关闭时 `drawPerformanceStats()` 提前返回，不采样 `/proc/stat`、不收 Mali 利用率、不读 RSS，零开销。
+
+### 验证
+
+```text
+BUILD SUCCESSFUL in 46s
+# 默认关闭 → 两套 FPS 均不显示
+# 打开 → 两套 FPS 同时出现
+# 重启 → show_fps="true" 持久化，进程重建后仍然显示
+# 关闭 → 两套同时消失，config.xml 恢复 show_fps="false"
+```
+
+### 改动文件
+
+- `data/shaders/combine_diffuse_color.frag`
+- `src/main.cpp`
+- `src/states_screens/race_gui_base.cpp`
+- `docs/cl.md`
+
+---
+
 ## v1.6.7 (2026-07-23) — 双屏性能实测、跨相机 fence 解耦与 resize 卡顿修复
 
 ### 结论

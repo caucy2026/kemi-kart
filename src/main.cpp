@@ -660,7 +660,7 @@ static void startDualScreenRace()
     RaceManager::get()->setPlayerKart(1, kart1);
     Log::info("main", "Dual-screen: P1=%s P2=%s", kart0.c_str(), kart1.c_str());
     
-    const std::string track_name = "abyss";
+    const std::string track_name = "black_forest";
     Log::info("main", "Dual-screen performance test: Track=%s",
               track_name.c_str());
     
