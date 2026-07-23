@@ -9,7 +9,7 @@
 
 ### 关键改动
 
-1. `combine_diffuse_color.frag`：深度 `1.0` 的 sky 像素直接输出 `light_scatter + bg_color * (1 - alpha)` 后 return，跳过后续全部纹理采样和光照计算。
+1. `combine_diffuse_color.frag`：深度 `1.0` 的 sky 像素直接输出 `light_scatter + bg_color * (1 - alpha)` 后 return，跳过后续全部纹理采样和光照计算。详细数学推导与 Mali-G52 指令级分析见 [`sky-early-return.md`](./sky-early-return.md)。
 2. `race_gui_base.cpp:drawPerformanceStats()`：入口新增 `if (!UserConfigParams::m_display_fps) return;`，自定义性能面板与官方 FPS 开关联动。
 3. `main.cpp`：双屏性能测试地图固定为 `black_forest`，替代原 `abyss`。
 
@@ -40,6 +40,7 @@ BUILD SUCCESSFUL in 46s
 - `src/main.cpp`
 - `src/states_screens/race_gui_base.cpp`
 - `docs/cl.md`
+- `docs/sky-early-return.md`
 
 ---
 
