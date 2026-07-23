@@ -162,7 +162,8 @@ public:
     {
 #ifndef SERVER_ONLY
         glBindBuffer(GL_ARRAY_BUFFER, m_instanced_array);
-        glBufferSubData(GL_ARRAY_BUFFER, 0, 36, m_instanced_data.getData());
+        glBufferData(GL_ARRAY_BUFFER, 36, m_instanced_data.getData(),
+            GL_DYNAMIC_DRAW);
         glBindBuffer(GL_ARRAY_BUFFER, 0);
 #endif
     }

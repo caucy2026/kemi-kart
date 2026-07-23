@@ -67,6 +67,182 @@
 #include <unistd.h>
 #endif
 
+#ifdef ANDROID
+namespace
+{
+DualScreenPerfStats g_perf_current;
+DualScreenPerfStats g_perf_accumulated;
+DualScreenPerfStats g_perf_published;
+std::chrono::steady_clock::time_point g_perf_window_start;
+}
+
+void dualScreenPerfBeginFrame()
+{
+    g_perf_current = DualScreenPerfStats();
+}
+
+void dualScreenPerfRecordGLCommands(double milliseconds)
+{
+    g_perf_current.m_gl_commands_ms += milliseconds;
+}
+
+void dualScreenPerfRecordRenderer(double milliseconds)
+{
+    g_perf_current.m_renderer_ms += milliseconds;
+}
+
+void dualScreenPerfRecordDriverPre(double wall_ms, double cpu_ms)
+{
+    g_perf_current.m_driver_pre_ms += wall_ms;
+    g_perf_current.m_driver_pre_cpu_ms += cpu_ms;
+}
+
+void dualScreenPerfRecordDriverPost(double milliseconds)
+{
+    g_perf_current.m_driver_post_ms += milliseconds;
+}
+
+void dualScreenPerfRecordMakeD2(double milliseconds)
+{
+    g_perf_current.m_make_d2_ms += milliseconds;
+}
+
+void dualScreenPerfRecordCamera(unsigned int camera, double milliseconds)
+{
+    if (camera < 2)
+        g_perf_current.m_camera_ms[camera] += milliseconds;
+}
+
+void dualScreenPerfRecordFenceWait(unsigned int camera, double milliseconds)
+{
+    if (camera < 2)
+        g_perf_current.m_fence_wait_ms[camera] += milliseconds;
+}
+
+void dualScreenPerfRecordHud(unsigned int display, double milliseconds)
+{
+    if (display == 0)
+        g_perf_current.m_hud_d0_ms += milliseconds;
+    else if (display == 2)
+        g_perf_current.m_hud_d2_ms += milliseconds;
+}
+
+void dualScreenPerfRecordRestoreD0(double milliseconds)
+{
+    g_perf_current.m_restore_d0_ms += milliseconds;
+}
+
+void dualScreenPerfRecordSwap(unsigned int display, double milliseconds)
+{
+    if (display == 0)
+        g_perf_current.m_swap_d0_ms += milliseconds;
+    else if (display == 2)
+        g_perf_current.m_swap_d2_ms += milliseconds;
+}
+
+void dualScreenPerfEndFrame(double frame_ms, double simulation_ms,
+                            double render_ms)
+{
+    extern bool g_dual_screen_mode;
+    if (!g_dual_screen_mode)
+        return;
+
+    const auto now = std::chrono::steady_clock::now();
+    if (g_perf_window_start.time_since_epoch().count() == 0)
+        g_perf_window_start = now;
+
+    g_perf_accumulated.m_frame_ms += frame_ms;
+    g_perf_accumulated.m_simulation_ms += simulation_ms;
+    g_perf_accumulated.m_render_ms += render_ms;
+    g_perf_accumulated.m_gl_commands_ms += g_perf_current.m_gl_commands_ms;
+    g_perf_accumulated.m_renderer_ms += g_perf_current.m_renderer_ms;
+    g_perf_accumulated.m_driver_pre_ms += g_perf_current.m_driver_pre_ms;
+    g_perf_accumulated.m_driver_pre_cpu_ms +=
+        g_perf_current.m_driver_pre_cpu_ms;
+    g_perf_accumulated.m_driver_post_ms += g_perf_current.m_driver_post_ms;
+    g_perf_accumulated.m_make_d2_ms += g_perf_current.m_make_d2_ms;
+    g_perf_accumulated.m_camera_ms[0] += g_perf_current.m_camera_ms[0];
+    g_perf_accumulated.m_camera_ms[1] += g_perf_current.m_camera_ms[1];
+    g_perf_accumulated.m_fence_wait_ms[0] +=
+        g_perf_current.m_fence_wait_ms[0];
+    g_perf_accumulated.m_fence_wait_ms[1] +=
+        g_perf_current.m_fence_wait_ms[1];
+    g_perf_accumulated.m_hud_d2_ms += g_perf_current.m_hud_d2_ms;
+    g_perf_accumulated.m_restore_d0_ms += g_perf_current.m_restore_d0_ms;
+    g_perf_accumulated.m_hud_d0_ms += g_perf_current.m_hud_d0_ms;
+    g_perf_accumulated.m_swap_d0_ms += g_perf_current.m_swap_d0_ms;
+    g_perf_accumulated.m_swap_d2_ms += g_perf_current.m_swap_d2_ms;
+    g_perf_accumulated.m_frames++;
+
+    if (std::chrono::duration_cast<std::chrono::milliseconds>(
+            now - g_perf_window_start).count() < 1000)
+        return;
+
+    const double count = g_perf_accumulated.m_frames;
+    if (count > 0.0)
+    {
+        g_perf_published = g_perf_accumulated;
+        g_perf_published.m_frame_ms /= count;
+        g_perf_published.m_simulation_ms /= count;
+        g_perf_published.m_render_ms /= count;
+        g_perf_published.m_gl_commands_ms /= count;
+        g_perf_published.m_renderer_ms /= count;
+        g_perf_published.m_driver_pre_ms /= count;
+        g_perf_published.m_driver_pre_cpu_ms /= count;
+        g_perf_published.m_driver_post_ms /= count;
+        g_perf_published.m_make_d2_ms /= count;
+        g_perf_published.m_camera_ms[0] /= count;
+        g_perf_published.m_camera_ms[1] /= count;
+        g_perf_published.m_fence_wait_ms[0] /= count;
+        g_perf_published.m_fence_wait_ms[1] /= count;
+        g_perf_published.m_hud_d2_ms /= count;
+        g_perf_published.m_restore_d0_ms /= count;
+        g_perf_published.m_hud_d0_ms /= count;
+        g_perf_published.m_swap_d0_ms /= count;
+        g_perf_published.m_swap_d2_ms /= count;
+        Log::info("DualPerf",
+            "frames=%u frame=%.2fms sim=%.2fms render=%.2fms "
+            "cam0=%.2fms cam1=%.2fms swap0=%.2fms swap2=%.2fms",
+            g_perf_published.m_frames, g_perf_published.m_frame_ms,
+            g_perf_published.m_simulation_ms, g_perf_published.m_render_ms,
+            g_perf_published.m_camera_ms[0], g_perf_published.m_camera_ms[1],
+            g_perf_published.m_swap_d0_ms, g_perf_published.m_swap_d2_ms);
+        const double renderer_other = g_perf_published.m_renderer_ms -
+            g_perf_published.m_make_d2_ms -
+            g_perf_published.m_camera_ms[0] -
+            g_perf_published.m_camera_ms[1] -
+            g_perf_published.m_hud_d2_ms -
+            g_perf_published.m_swap_d2_ms -
+            g_perf_published.m_restore_d0_ms -
+            g_perf_published.m_hud_d0_ms -
+            g_perf_published.m_swap_d0_ms;
+        Log::info("DualPerfRender",
+            "glcmd=%.2fms pre=%.2fms precpu=%.2fms "
+            "renderer=%.2fms post=%.2fms make2=%.2fms "
+            "fence0=%.2fms fence1=%.2fms hud2=%.2fms "
+            "restore=%.2fms hud0=%.2fms other=%.2fms",
+            g_perf_published.m_gl_commands_ms,
+            g_perf_published.m_driver_pre_ms,
+            g_perf_published.m_driver_pre_cpu_ms,
+            g_perf_published.m_renderer_ms,
+            g_perf_published.m_driver_post_ms,
+            g_perf_published.m_make_d2_ms,
+            g_perf_published.m_fence_wait_ms[0],
+            g_perf_published.m_fence_wait_ms[1],
+            g_perf_published.m_hud_d2_ms,
+            g_perf_published.m_restore_d0_ms,
+            g_perf_published.m_hud_d0_ms, renderer_other);
+    }
+    g_perf_accumulated = DualScreenPerfStats();
+    g_perf_window_start = now;
+}
+
+const DualScreenPerfStats& dualScreenPerfGetStats()
+{
+    return g_perf_published;
+}
+#endif
+
 #ifdef __SWITCH__
 extern "C" {
 #define Event libnx_Event
@@ -456,6 +632,9 @@ void MainLoop::run()
 
         PROFILER_PUSH_CPU_MARKER("Main loop", 0xFF, 0x00, 0xF7);
         TimePoint frame_start = std::chrono::steady_clock::now();
+    #ifdef ANDROID
+        dualScreenPerfBeginFrame();
+    #endif
 
         left_over_time += getLimitedDt();
         int num_steps   = stk_config->time2Ticks(left_over_time);
@@ -562,6 +741,9 @@ void MainLoop::run()
         if (!m_abort)
         {
             float frame_duration = num_steps * dt;
+#ifdef ANDROID
+            double render_ms = 0.0;
+#endif
             if (!GUIEngine::isNoGraphics())
             {
                 PROFILER_PUSH_CPU_MARKER("Update race", 0, 255, 255);
@@ -571,7 +753,14 @@ void MainLoop::run()
 
                 // Render the previous frame, and also handle all user input.
                 PROFILER_PUSH_CPU_MARKER("IrrDriver update", 0x00, 0x00, 0x7F);
+#ifdef ANDROID
+                const TimePoint render_start = std::chrono::steady_clock::now();
+#endif
                 irr_driver->update(frame_duration);
+#ifdef ANDROID
+                render_ms = convertToTime(
+                    std::chrono::steady_clock::now(), render_start);
+#endif
                 PROFILER_POP_CPU_MARKER();
 
                 PROFILER_PUSH_CPU_MARKER("Input/GUI", 0x7F, 0x00, 0x00);
@@ -632,6 +821,9 @@ void MainLoop::run()
             bool fast_forward = NetworkConfig::get()->isNetworking() &&
                 NetworkConfig::get()->isClient() &&
                 num_steps > stk_config->time2Ticks(1.0f);
+#ifdef ANDROID
+            const TimePoint simulation_start = std::chrono::steady_clock::now();
+#endif
             for (int i = 0; i < num_steps; i++)
             {
                 if (World::getWorld() && history->replayHistory())
@@ -687,6 +879,10 @@ void MainLoop::run()
             // Do it after all pending rewinding is done
             if (World::getWorld() && RewindManager::isEnabled())
                  RewindManager::get()->handleResetSmoothNetworkBody();
+#ifdef ANDROID
+            const double simulation_ms = convertToTime(
+                std::chrono::steady_clock::now(), simulation_start);
+#endif
 
             // Handle controller the last to avoid slow PC sending actions too
             // late
@@ -730,6 +926,12 @@ void MainLoop::run()
             {
                 gp->sendActions();
             }
+
+#ifdef ANDROID
+            dualScreenPerfEndFrame(convertToTime(
+                std::chrono::steady_clock::now(), frame_start),
+                simulation_ms, render_ms);
+#endif
         }
 
         if (!UserConfigParams::m_benchmark)
@@ -737,16 +939,25 @@ void MainLoop::run()
             TimePoint frame_end = std::chrono::steady_clock::now();
             double frame_time = convertToTime(frame_end, frame_start) * 0.001;
             const double current_fps = 1.0 / frame_time;
-            const double max_fps =
+            double max_fps =
                 (irr_driver->isRecording() && UserConfigParams::m_limit_game_fps) ?
                 UserConfigParams::m_record_fps : UserConfigParams::m_max_fps;
+#ifdef ANDROID
+            extern bool g_dual_screen_mode;
+            if (g_dual_screen_mode)
+                max_fps = 30.0;
+#endif
 
             // Throttle fps if more than maximum, which can reduce
             // the noise the fan on a graphics card makes.
             // No need to throttle if vsync is on (m_swap_interval == 1) as
             // endScene handles fps according to monitor refresh rate
             if ((UserConfigParams::m_swap_interval == 0 ||
-                GUIEngine::isNoGraphics()) &&
+                GUIEngine::isNoGraphics()
+#ifdef ANDROID
+                || g_dual_screen_mode
+#endif
+                ) &&
                 m_throttle_fps && !ProfileWorld::isProfileMode() &&
                 current_fps > max_fps)
             {

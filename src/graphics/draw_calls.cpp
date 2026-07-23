@@ -29,9 +29,13 @@
 #include "graphics/text_billboard_drawer.hpp"
 #include "graphics/sp/sp_base.hpp"
 #include "graphics/sp/sp_mesh_node.hpp"
+#ifdef ANDROID
+#include "main_loop.hpp"
+#endif
 #include "tracks/track.hpp"
 #include "utils/profiler.hpp"
 
+#include <chrono>
 #include <numeric>
 
 #include <ICameraSceneNode.h>
@@ -199,12 +203,18 @@ void DrawCalls::parseSceneManager(core::array<scene::ISceneNode*> &List,
 // ----------------------------------------------------------------------------
 DrawCalls::DrawCalls()
 {
-    m_sync = 0;
+    for (unsigned i = 0; i < MAX_PLAYER_COUNT; i++)
+        m_sync[i] = 0;
 } //DrawCalls
 
 // ----------------------------------------------------------------------------
 DrawCalls::~DrawCalls()
 {
+    for (unsigned i = 0; i < MAX_PLAYER_COUNT; i++)
+    {
+        if (m_sync[i] != 0)
+            glDeleteSync(m_sync[i]);
+    }
     CPUParticleManager::kill();
     STKParticle::destroyFlipsBuffer();
 } //~DrawCalls
@@ -230,20 +240,29 @@ void DrawCalls::prepareDrawCalls(scene::ICameraSceneNode *camnode)
     PROFILER_POP_CPU_MARKER();
 
     // Add a 1 s timeout
-    if (m_sync != 0)
+    GLsync& sync = m_sync[SP::sp_cur_player];
+    if (sync != 0)
     {
         PROFILER_PUSH_CPU_MARKER("- Sync Stall", 0xFF, 0x0, 0x0);
-        GLenum reason = glClientWaitSync(m_sync, GL_SYNC_FLUSH_COMMANDS_BIT, 0);
+#ifdef ANDROID
+        const auto fence_wait_start = std::chrono::steady_clock::now();
+#endif
+        GLenum reason = glClientWaitSync(sync, GL_SYNC_FLUSH_COMMANDS_BIT, 0);
         if (reason != GL_ALREADY_SIGNALED)
         {
             do
             {
-                reason = glClientWaitSync(m_sync, GL_SYNC_FLUSH_COMMANDS_BIT, 1000000);
+                reason = glClientWaitSync(sync, GL_SYNC_FLUSH_COMMANDS_BIT, 1000000);
             }
             while (reason == GL_TIMEOUT_EXPIRED);
         }
-        glDeleteSync(m_sync);
-        m_sync = 0;
+        glDeleteSync(sync);
+        sync = 0;
+#ifdef ANDROID
+        dualScreenPerfRecordFenceWait(SP::sp_cur_player,
+            std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - fence_wait_start).count());
+#endif
         PROFILER_POP_CPU_MARKER();
     }
 
@@ -257,6 +276,15 @@ void DrawCalls::prepareDrawCalls(scene::ICameraSceneNode *camnode)
         0xFF, 0x0, 0xFF);
     SP::uploadAll();
     PROFILER_POP_CPU_MARKER();
+}
+
+// ----------------------------------------------------------------------------
+void DrawCalls::setFenceSync()
+{
+    GLsync& sync = m_sync[SP::sp_cur_player];
+    if (sync != 0)
+        glDeleteSync(sync);
+    sync = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
 }
 
 #endif

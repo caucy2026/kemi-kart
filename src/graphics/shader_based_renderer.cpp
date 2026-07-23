@@ -39,6 +39,7 @@
 #include "graphics/text_billboard_drawer.hpp"
 #include "items/item_manager.hpp"
 #include "items/powerup_manager.hpp"
+#include "main_loop.hpp"
 #include "modes/world.hpp"
 #include "physics/physics.hpp"
 #include "states_screens/race_gui_base.hpp"
@@ -53,6 +54,7 @@
 #include "../../lib/irrlicht/source/Irrlicht/os.h"
 #include <IVideoDriver.h>
 #include <algorithm>
+#include <chrono>
 
 // ----------------------------------------------------------------------------
 void ShaderBasedRenderer::setRTT(RTT* rtts)
@@ -761,14 +763,25 @@ void ShaderBasedRenderer::render(float dt, bool is_loading)
         if (dual_active && cam == 1)
         {
             // Switch to Display 2
+#ifdef ANDROID
+            const auto make_d2_start = std::chrono::steady_clock::now();
+#endif
             if (dualScreenMakeCurrent())
             {
                 // Manual beginScene: clear Display 2's backbuffer
                 glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
                 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
             }
+#ifdef ANDROID
+            dualScreenPerfRecordMakeD2(
+                std::chrono::duration<double, std::milli>(
+                    std::chrono::steady_clock::now() - make_d2_start).count());
+#endif
         }
 
+#ifdef ANDROID
+        const auto camera_start = std::chrono::steady_clock::now();
+#endif
         std::ostringstream oss;
         oss << "drawAll() for kart " << cam;
         PROFILER_PUSH_CPU_MARKER(oss.str().c_str(), (cam+1)*60,
@@ -804,11 +817,19 @@ void ShaderBasedRenderer::render(float dt, bool is_loading)
 
         // Save projection-view matrix for the next frame
         camera->setPreviousPVMatrix(irr_driver->getProjViewMatrix());
+#ifdef ANDROID
+        dualScreenPerfRecordCamera(cam,
+            std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - camera_start).count());
+#endif
 
         // Dual-screen: render Player 1's full HUD on Display 2, then swap & restore
         if (dual_active && cam == 1)
         {
             World *world = World::getWorld();
+#ifdef ANDROID
+            const auto hud_d2_start = std::chrono::steady_clock::now();
+#endif
             
             // 1. Per-player HUD: steering wheel, speed, powerup icons, messages
             rg->renderPlayerView(camera, dt);
@@ -833,6 +854,7 @@ void ShaderBasedRenderer::render(float dt, bool is_loading)
                 
                 // MiniMap
                 gui->drawGlobalMiniMap();
+                rg->drawPerformanceStats();
                 
                 // Timer + player icons (only during active race phase)
                 if (world->isRacePhase())
@@ -853,12 +875,29 @@ void ShaderBasedRenderer::render(float dt, bool is_loading)
                 // Fallback: at least draw player icons
                 rg->drawGlobalPlayerIcons((int)mtgui->getHeight());
             }
+#ifdef ANDROID
+            dualScreenPerfRecordHud(2,
+                std::chrono::duration<double, std::milli>(
+                    std::chrono::steady_clock::now() - hud_d2_start).count());
+#endif
 
+            const auto swap_start = std::chrono::steady_clock::now();
             dualScreenSwapBuffers();
+            dualScreenPerfRecordSwap(2,
+                std::chrono::duration<double, std::milli>(
+                    std::chrono::steady_clock::now() - swap_start).count());
+#ifdef ANDROID
+            const auto restore_start = std::chrono::steady_clock::now();
+#endif
             if (!dualScreenRestorePrimary())
             {
                 Log::warn("ShaderBasedRenderer", "Failed to restore Display 0");
             }
+#ifdef ANDROID
+            dualScreenPerfRecordRestoreD0(
+                std::chrono::duration<double, std::milli>(
+                    std::chrono::steady_clock::now() - restore_start).count());
+#endif
         }
 
         PROFILER_POP_CPU_MARKER();
@@ -878,6 +917,9 @@ void ShaderBasedRenderer::render(float dt, bool is_loading)
                                     (float)irr_driver->getActualScreenSize().Width,
                                     (float)irr_driver->getActualScreenSize().Height);
 
+#ifdef ANDROID
+    const auto hud_d0_start = std::chrono::steady_clock::now();
+#endif
     for(unsigned int i=0; i<Camera::getNumCameras(); i++)
     {
         // Dual-screen: Camera 1's GUI already rendered on Display 2
@@ -904,6 +946,11 @@ void ShaderBasedRenderer::render(float dt, bool is_loading)
             irr_driver->renderNetworkDebug();
         PROFILER_POP_CPU_MARKER();
     }
+#ifdef ANDROID
+    dualScreenPerfRecordHud(0,
+        std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - hud_d0_start).count());
+#endif
 
     // Render the profiler
     if(UserConfigParams::m_profiler_enabled)
@@ -916,7 +963,15 @@ void ShaderBasedRenderer::render(float dt, bool is_loading)
 #endif
 
     PROFILER_PUSH_CPU_MARKER("EndScene", 0x45, 0x75, 0x45);
+#ifdef ANDROID
+    const auto swap_start = std::chrono::steady_clock::now();
+#endif
     irr_driver->getVideoDriver()->endScene();
+#ifdef ANDROID
+    dualScreenPerfRecordSwap(0,
+        std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - swap_start).count());
+#endif
     // Note: In dual-screen mode, Camera 1 was already swapped to Display 2
     // in the camera loop. Display 0 is swapped here by SDL.
     PROFILER_POP_CPU_MARKER();

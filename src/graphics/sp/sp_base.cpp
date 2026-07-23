@@ -139,7 +139,11 @@ GLuint sp_fog_ubo = 0;
 // ----------------------------------------------------------------------------
 core::vector3df sp_wind_dir;
 // ----------------------------------------------------------------------------
+#ifdef ANDROID
+GLuint g_skinning_tex[MAX_PLAYER_COUNT] = {};
+#else
 GLuint g_skinning_tex;
+#endif
 // ----------------------------------------------------------------------------
 GLuint g_skinning_buf;
 // ----------------------------------------------------------------------------
@@ -260,11 +264,22 @@ void resizeSkinning(unsigned number)
 
     if (!skinningUseTBO())
     {
+#ifdef ANDROID
+        for (unsigned player = 0; player < MAX_PLAYER_COUNT; player++)
+        {
+            glBindTexture(GL_TEXTURE_2D, g_skinning_tex[player]);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, 4, number, 0, GL_RGBA,
+                GL_FLOAT, NULL);
+            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 4, 1, GL_RGBA, GL_FLOAT,
+                m.pointer());
+        }
+#else
         glBindTexture(GL_TEXTURE_2D, g_skinning_tex);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, 4, number, 0, GL_RGBA,
             GL_FLOAT, NULL);
         glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 4, 1, GL_RGBA, GL_FLOAT,
             m.pointer());
+#endif
         glBindTexture(GL_TEXTURE_2D, 0);
         static std::vector<std::array<float, 16> >
             tmp_buf(stk_config->m_max_skinning_bones);
@@ -342,7 +357,11 @@ void initSkinning()
     // Reserve 1 identity matrix for non-weighted vertices
     // All buffer / skinning texture start with 2 bones for power of 2 increase
     const irr::core::matrix4 m;
+#ifdef ANDROID
+    glGenTextures(MAX_PLAYER_COUNT, g_skinning_tex);
+#else
     glGenTextures(1, &g_skinning_tex);
+#endif
 #ifndef USE_GLES2
     if (skinningUseTBO())
     {
@@ -351,7 +370,11 @@ void initSkinning()
 #endif
     resizeSkinning(stk_config->m_max_skinning_bones);
 
+#ifdef ANDROID
+    sp_prefilled_tex[0] = g_skinning_tex[0];
+#else
     sp_prefilled_tex[0] = g_skinning_tex;
+#endif
 }   // initSkinning
 
 // ----------------------------------------------------------------------------
@@ -645,7 +668,11 @@ void destroy()
     }
     glDeleteBuffers(1, &g_skinning_buf);
 #endif
+#ifdef ANDROID
+    glDeleteTextures(MAX_PLAYER_COUNT, g_skinning_tex);
+#else
     glDeleteTextures(1, &g_skinning_tex);
+#endif
 
     for (unsigned i = 0; i < MAX_PLAYER_COUNT; i++)
     {
@@ -1187,7 +1214,11 @@ void uploadSkinningMatrices()
     
         if (!skinningUseTBO())
         {
+#ifdef ANDROID
+            glBindTexture(GL_TEXTURE_2D, g_skinning_tex[sp_cur_player]);
+#else
             glBindTexture(GL_TEXTURE_2D, g_skinning_tex);
+#endif
             glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 1, 4, buffer_offset, GL_RGBA,
                 GL_FLOAT, g_joint_ptr);
             glBindTexture(GL_TEXTURE_2D, 0);
@@ -1208,6 +1239,9 @@ void uploadSkinningMatrices()
 void uploadAll()
 {
     uploadSkinningMatrices();
+#ifdef ANDROID
+    sp_prefilled_tex[0] = g_skinning_tex[sp_cur_player];
+#endif
     glBindBuffer(GL_UNIFORM_BUFFER,
         sp_mat_ubo[sp_cur_player][sp_cur_buf_id[sp_cur_player]]);
     /*void* ptr = glMapBufferRange(GL_UNIFORM_BUFFER, 0,

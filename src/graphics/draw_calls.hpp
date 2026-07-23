@@ -20,6 +20,7 @@
 
 #ifndef SERVER_ONLY
 #include "graphics/gl_headers.hpp"
+#include "utils/constants.hpp"
 #include <vector>
 
 #include <irrArray.h>
@@ -41,7 +42,7 @@ class ShadowMatrices;
 class DrawCalls
 {
 private:
-    GLsync                                m_sync;
+    GLsync                                m_sync[MAX_PLAYER_COUNT];
     std::vector<float>                    m_bounding_boxes;
 
     void parseSceneManager(core::array<scene::ISceneNode*> &List,
@@ -64,7 +65,7 @@ public:
 
     void renderBoundingBoxes();
 
-    void setFenceSync() { m_sync = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0); }
+    void setFenceSync();
 };
 
 #endif   // !SERVER_ONLY

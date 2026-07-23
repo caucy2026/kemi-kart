@@ -2202,6 +2202,25 @@ void IrrDriver::handleWindowResize()
     screen_orientation_changed = m_screen_orientation != new_orientation;
 #endif
     const core::dimension2du& new_size = m_video_driver->getCurrentRenderTargetSize();
+#ifdef ANDROID
+    extern bool g_dual_screen_mode;
+        const bool same_orientation_axis =
+                ((m_screen_orientation == SDL_ORIENTATION_LANDSCAPE ||
+                    m_screen_orientation == SDL_ORIENTATION_LANDSCAPE_FLIPPED) &&
+                 (new_orientation == SDL_ORIENTATION_LANDSCAPE ||
+                    new_orientation == SDL_ORIENTATION_LANDSCAPE_FLIPPED)) ||
+                ((m_screen_orientation == SDL_ORIENTATION_PORTRAIT ||
+                    m_screen_orientation == SDL_ORIENTATION_PORTRAIT_FLIPPED) &&
+                 (new_orientation == SDL_ORIENTATION_PORTRAIT ||
+                    new_orientation == SDL_ORIENTATION_PORTRAIT_FLIPPED));
+    if (g_dual_screen_mode && m_actual_screen_size == new_size &&
+                current_screen_size == new_size && screen_orientation_changed &&
+                same_orientation_axis)
+    {
+        m_screen_orientation = new_orientation;
+        screen_orientation_changed = false;
+    }
+#endif
     if (m_actual_screen_size != new_size ||
         current_screen_size != new_size ||
         screen_orientation_changed)
@@ -2255,6 +2274,11 @@ void IrrDriver::updateDisplace(float dt)
  */
 void IrrDriver::update(float dt, bool is_loading)
 {
+#ifdef ANDROID
+    const auto driver_start = std::chrono::steady_clock::now();
+    timespec driver_cpu_start;
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &driver_cpu_start);
+#endif
     bool show_dialog_yes = m_resolution_changing == RES_CHANGE_YES;
     bool show_dialog_warn = m_resolution_changing == RES_CHANGE_YES_WARN;
     // If the resolution should be switched, do it now. This will delete the
@@ -2278,7 +2302,15 @@ void IrrDriver::update(float dt, bool is_loading)
 #ifndef SERVER_ONLY
     if (CVS->isGLSL())
     {
+#ifdef ANDROID
+        const auto gl_commands_start = std::chrono::steady_clock::now();
+#endif
         SP::SPTextureManager::get()->checkForGLCommand();
+#ifdef ANDROID
+        dualScreenPerfRecordGLCommands(
+            std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - gl_commands_start).count());
+#endif
     }
 #endif
     World *world = World::getWorld();
@@ -2287,7 +2319,23 @@ void IrrDriver::update(float dt, bool is_loading)
     {
 #ifndef SERVER_ONLY
         updateDisplace(dt);
+#ifdef ANDROID
+    const auto renderer_start = std::chrono::steady_clock::now();
+    timespec renderer_cpu_start;
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &renderer_cpu_start);
+    dualScreenPerfRecordDriverPre(
+        std::chrono::duration<double, std::milli>(
+            renderer_start - driver_start).count(),
+        (renderer_cpu_start.tv_sec - driver_cpu_start.tv_sec) * 1000.0 +
+        (renderer_cpu_start.tv_nsec - driver_cpu_start.tv_nsec) / 1000000.0);
+#endif
         m_renderer->render(dt, is_loading);
+#ifdef ANDROID
+    const auto renderer_end = std::chrono::steady_clock::now();
+    dualScreenPerfRecordRenderer(
+        std::chrono::duration<double, std::milli>(
+        renderer_end - renderer_start).count());
+#endif
 
         GUIEngine::Screen* current_screen = GUIEngine::getCurrentScreen();
         if (current_screen != NULL && current_screen->needs3D())
@@ -2303,6 +2351,11 @@ void IrrDriver::update(float dt, bool is_loading)
                 debug_drawer->beginNextFrame();
             }
         }
+#ifdef ANDROID
+        dualScreenPerfRecordDriverPost(
+            std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - renderer_end).count());
+#endif
 #endif
     }
     else

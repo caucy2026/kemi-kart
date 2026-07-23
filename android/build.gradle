@@ -108,8 +108,13 @@ android
                 ndkBuild
                 {
                     arguments 'NDK_DEBUG=1'
-                    cFlags '-O0'
-                    cppFlags '-O0'
+                    cFlags '-O3', '-fomit-frame-pointer'
+                    cppFlags '-O3', '-fomit-frame-pointer'
+                    if (project.getProperty('compile_arch') == 'arm64-v8a')
+                    {
+                        cFlags '-mcpu=cortex-a73'
+                        cppFlags '-mcpu=cortex-a73'
+                    }
                 }
             }
             ndk

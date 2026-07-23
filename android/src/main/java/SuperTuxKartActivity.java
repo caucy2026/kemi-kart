@@ -31,6 +31,15 @@ public class SuperTuxKartActivity extends SDLActivity {
     }
 
     @Override
+    protected String[] getArguments() {
+        Intent intent = getIntent();
+        if (intent != null && intent.getBooleanExtra("perf_test", false)) {
+            return new String[] { "--dual-screen-perf-test" };
+        }
+        return super.getArguments();
+    }
+
+    @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 

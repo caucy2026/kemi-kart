@@ -1,5 +1,39 @@
 # STK 双屏异显 — 版本记录
 
+## v1.6.7 (2026-07-23) — 双屏性能实测、跨相机 fence 解耦与 resize 卡顿修复
+
+### 结论
+
+- 固定 `abyss`、2 名本地玩家、4 个 AI、100 圈的真机测试入口已加入。
+- 基线 renderer 约 40.35 ms，Camera 1 每帧等待全局 fence 约 17.63 ms，帧率约 17–20 FPS。
+- 将同步和可能被覆盖的动态 GPU 资源按玩家隔离后，renderer 常见约 20–23 ms，Camera 1 fence 降至约 0.01–0.03 ms。
+- 修复 Android orientation 枚举抖动触发窗口/RTT 重建的问题，driver pre 尖峰由 14–77 ms 降至约 0.03 ms。
+- 最终稳态常见约 26–33 FPS，未达到 60 FPS；剩余限制是 simulation 波动和单 EGLContext 下两台相机顺序提交的实际 GPU 成本。
+- 后续核对真实编译命令发现 Bullet/Irrlicht 等 Debug 静态库仍为 `-O0`；统一全 native 模块 O3、arm64 Cortex-A73 后，simulation 降至约 2–4 ms，并加入双屏专用 30 Hz pacing。
+- 最近 30 个连续统计窗口为平均 30.10 帧、最少 30、最多 31；节流前工作时间平均 25.46 ms、最坏 28.94 ms，已稳定满足 33.3 ms 截止时间。
+- 本轮未修改任何画质配置；D0/D2 独立相机、车辆骨骼、粒子、HUD、赛道和道具均经截图与日志验证。
+
+### 关键改动
+
+1. `DrawCalls` 的单个全局 `GLsync` 改为每玩家 fence，每台相机只等待自己的上一帧资源。
+2. CPU 粒子 VAO/VBO 和 Android 骨骼矩阵纹理改为每玩家独立资源。
+3. 动态文字 billboard 使用 `glBufferData` 替换 data store，避免覆盖 GPU 仍在读取的实例数据。
+4. 双屏模式下仅忽略实际尺寸不变、且 orientation 只在同一方向轴正反枚举间变化的事件；真实尺寸或横竖轴变化仍执行 resize。
+5. 两屏增加 FPS、CPU、GPU、RSS、frame/sim/render、camera 和 swap 实时统计。
+6. 临时 GPU timer query 探针完成定位后已移除，最终只保留一秒聚合的低开销统计。
+
+### 验证
+
+```text
+BUILD SUCCESSFUL in 35s
+DualPerf: frames=33 frame=30.83ms sim=7.89ms render=22.10ms
+DualPerfRender: renderer=22.07ms fence0=0.01ms fence1=0.02ms
+```
+
+详细根因、资源所有权、逐文件改动、审查结论、测试命令和完整真机证据见 [`dual-screen-performance.md`](./dual-screen-performance.md)。
+
+---
+
 ## v1.6.6.1 (2026-07-23) — RK3566 平台编译优化：Cortex-A73 + Mali-G52
 
 ### 硬件平台

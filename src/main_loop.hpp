@@ -25,6 +25,44 @@
 #include <atomic>
 #include <chrono>
 
+#ifdef ANDROID
+struct DualScreenPerfStats
+{
+    double m_frame_ms = 0.0;
+    double m_simulation_ms = 0.0;
+    double m_render_ms = 0.0;
+    double m_gl_commands_ms = 0.0;
+    double m_renderer_ms = 0.0;
+    double m_driver_pre_ms = 0.0;
+    double m_driver_pre_cpu_ms = 0.0;
+    double m_driver_post_ms = 0.0;
+    double m_make_d2_ms = 0.0;
+    double m_camera_ms[2] = { 0.0, 0.0 };
+    double m_fence_wait_ms[2] = { 0.0, 0.0 };
+    double m_hud_d2_ms = 0.0;
+    double m_restore_d0_ms = 0.0;
+    double m_hud_d0_ms = 0.0;
+    double m_swap_d0_ms = 0.0;
+    double m_swap_d2_ms = 0.0;
+    unsigned int m_frames = 0;
+};
+
+void dualScreenPerfBeginFrame();
+void dualScreenPerfRecordGLCommands(double milliseconds);
+void dualScreenPerfRecordRenderer(double milliseconds);
+void dualScreenPerfRecordDriverPre(double wall_ms, double cpu_ms);
+void dualScreenPerfRecordDriverPost(double milliseconds);
+void dualScreenPerfRecordMakeD2(double milliseconds);
+void dualScreenPerfRecordCamera(unsigned int camera, double milliseconds);
+void dualScreenPerfRecordFenceWait(unsigned int camera, double milliseconds);
+void dualScreenPerfRecordHud(unsigned int display, double milliseconds);
+void dualScreenPerfRecordRestoreD0(double milliseconds);
+void dualScreenPerfRecordSwap(unsigned int display, double milliseconds);
+void dualScreenPerfEndFrame(double frame_ms, double simulation_ms,
+                            double render_ms);
+const DualScreenPerfStats& dualScreenPerfGetStats();
+#endif
+
 /** Management class for the whole gameflow, this is where the
     main-loop is */
 class MainLoop

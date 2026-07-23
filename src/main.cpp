@@ -588,6 +588,7 @@ void setupRaceStart()
 bool g_dual_screen_mode = false;
 bool g_dual_screen_show_p0_wait_message = false;
 bool g_dual_screen_show_p1_wait_message = false;
+static bool g_dual_screen_perf_test = false;
 
 static void startDualScreenRace()
 {
@@ -643,60 +644,37 @@ static void startDualScreenRace()
     RaceManager::get()->setMinorMode(RaceManager::MINOR_MODE_NORMAL_RACE);
     RaceManager::get()->setDifficulty(RaceManager::DIFFICULTY_MEDIUM);
     
-    // ── Kart selection: cycle through available karts each game ──
-    static int s_kart_offset = 0;
+    // Use deterministic karts so repeated performance runs are comparable.
     unsigned kart_count = kart_properties_manager->getNumberOfKarts();
     std::string kart0 = "tux";
     std::string kart1 = "gavroche";
     if (kart_count >= 2)
     {
-        int idx0 = s_kart_offset % kart_count;
-        int idx1 = (s_kart_offset + 1) % kart_count;
-        if (idx0 == idx1) idx1 = (idx1 + 1) % kart_count;
-        const KartProperties* kp0 = kart_properties_manager->getKartById(idx0);
-        const KartProperties* kp1 = kart_properties_manager->getKartById(idx1);
+        const KartProperties* kp0 = kart_properties_manager->getKartById(0);
+        const KartProperties* kp1 = kart_properties_manager->getKartById(1);
         kart0 = kp0->getIdent();
         kart1 = kp1->getIdent();
     }
-    s_kart_offset++;
     
     RaceManager::get()->setPlayerKart(0, kart0);
     RaceManager::get()->setPlayerKart(1, kart1);
     Log::info("main", "Dual-screen: P1=%s P2=%s", kart0.c_str(), kart1.c_str());
     
-    // ── Track selection: cycle through available tracks ──
-    static int s_track_offset = 0;
-    std::string track_name = "abyss";
-    unsigned track_total = track_manager->getNumberOfTracks();
-    if (track_total > 0)
-    {
-        int tidx = s_track_offset % (int)track_total;
-        Track* t = track_manager->getTrack(tidx);
-        if (t)
-        {
-            track_name = t->getIdent();
-            // Skip non-race tracks
-            if (t->isArena() || t->isSoccer())
-                track_name = "abyss";
-        }
-    }
-    s_track_offset++;
-    RaceManager::get()->setTrack(track_name);
-    Log::info("main", "Dual-screen: Track=%s (cycle %d/%d)",
-              track_name.c_str(), s_track_offset, (int)track_total);
+    const std::string track_name = "abyss";
+    Log::info("main", "Dual-screen performance test: Track=%s",
+              track_name.c_str());
     
-    // AI count: 0 (just 2 human players)
-    RaceManager::get()->setNumKarts(2);
+    // Match the normal race load: 2 local players plus 4 AI karts.
+    RaceManager::get()->setNumKarts(6);
     
     // Assign mode: only assigned devices get input
     input_manager->getDeviceManager()->setAssignMode(ASSIGN);
     
-    // Enter game state and start
-    StateManager::get()->enterGameState();
-    RaceManager::get()->setupPlayerKartInfo();
-    RaceManager::get()->startNew(false);
+    RaceManager::get()->startSingleRace(track_name, 100, false);
     
-    Log::info("main", "Dual-screen race started!");
+    Log::info("main", "PERF_TEST_READY players=%u karts=%d track=%s",
+              StateManager::get()->activePlayerCount(),
+              RaceManager::get()->getNumberOfKarts(), track_name.c_str());
 }
 
 // Display 2 touch input is now handled by SDL's standard touch path.
@@ -1879,6 +1857,14 @@ int handleCmdLine(bool has_server_config, bool has_parent_process)
         UserConfigParams::m_no_start_screen = true;
         UserConfigParams::m_race_now = true;
     }   // --race-now
+#ifdef ANDROID
+    if (CommandLine::has("--dual-screen-perf-test"))
+    {
+        g_dual_screen_perf_test = true;
+        UserConfigParams::m_no_start_screen = true;
+        UserConfigParams::m_race_now = true;
+    }
+#endif
 
     if(CommandLine::has( "--use-keyboard",&n)) {
         UserConfigParams::m_default_keyboard = n;
@@ -2743,9 +2729,16 @@ int main(int argc, char *argv[])
         }
         else
         {
+#ifdef ANDROID
+            if (g_dual_screen_perf_test)
+                startDualScreenRace();
+            else
+#endif
+            {
             setupRaceStart();
             // Go straight to the race
             StateManager::get()->enterGameState();
+            }
         }
 
         // Reset the story mode timer before going in the main loop
@@ -2774,7 +2767,11 @@ int main(int argc, char *argv[])
         // =============
         if(!ProfileWorld::isProfileMode())
         {
-            if(UserConfigParams::m_no_start_screen)
+            if(UserConfigParams::m_no_start_screen
+#ifdef ANDROID
+                && !g_dual_screen_perf_test
+#endif
+                )
             {
                 if (UserConfigParams::m_benchmark)
                 {

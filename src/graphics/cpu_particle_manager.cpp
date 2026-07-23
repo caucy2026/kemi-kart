@@ -21,6 +21,7 @@
 #include "graphics/irr_driver.hpp"
 #include "graphics/material.hpp"
 #include "graphics/material_manager.hpp"
+#include "graphics/sp/sp_base.hpp"
 #include "utils/log.hpp"
 
 #include <algorithm>
@@ -280,6 +281,7 @@ void CPUParticleManager::generateAll()
 // ----------------------------------------------------------------------------
 void CPUParticleManager::uploadAll()
 {
+    auto& gl_particles = m_gl_particles[SP::sp_cur_player];
     for (auto& p : m_particles_generated)
     {
         if (p.second.empty())
@@ -287,17 +289,17 @@ void CPUParticleManager::uploadAll()
             continue;
         }
         unsigned vbo_size = (unsigned)(m_particles_generated[p.first].size());
-        if (m_gl_particles.find(p.first) == m_gl_particles.end())
+        if (gl_particles.find(p.first) == gl_particles.end())
         {
-            m_gl_particles[p.first] = std::unique_ptr<GLParticle>
+            gl_particles[p.first] = std::unique_ptr<GLParticle>
                 (new GLParticle(isFlipsMaterial(p.first)));
         }
-        glBindBuffer(GL_ARRAY_BUFFER, m_gl_particles.at(p.first)->m_vbo);
+        glBindBuffer(GL_ARRAY_BUFFER, gl_particles.at(p.first)->m_vbo);
 
         // Check "real" particle buffer size in opengl
-        if (m_gl_particles.at(p.first)->m_size < vbo_size)
+        if (gl_particles.at(p.first)->m_size < vbo_size)
         {
-            m_gl_particles.at(p.first)->m_size = vbo_size * 2;
+            gl_particles.at(p.first)->m_size = vbo_size * 2;
             m_particles_generated.at(p.first).reserve(vbo_size * 2);
             glBufferData(GL_ARRAY_BUFFER, vbo_size * 2 * 20,
                 m_particles_generated.at(p.first).data(), GL_DYNAMIC_DRAW);
@@ -318,6 +320,7 @@ void CPUParticleManager::uploadAll()
 void CPUParticleManager::drawAll()
 {
     using namespace SP;
+    auto& gl_particles = m_gl_particles[sp_cur_player];
     std::vector<std::pair<Material*, std::string> > particle_drawn;
     for (auto& p : m_particles_generated)
     {
@@ -398,7 +401,7 @@ void CPUParticleManager::drawAll()
             AlphaTestParticleRenderer::getInstance()->setUniforms(flips, sky,
                 view_position, billboard);
         }
-        glBindVertexArray(m_gl_particles.at(p.second)->m_vao);
+        glBindVertexArray(gl_particles.at(p.second)->m_vao);
         glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 4,
             (unsigned)m_particles_generated.at(p.second).size());
     }

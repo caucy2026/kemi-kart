@@ -85,7 +85,7 @@ private:
         m_particles_generated;
 
     std::unordered_map<std::string, std::unique_ptr<GLParticle> >
-        m_gl_particles;
+        m_gl_particles[MAX_PLAYER_COUNT];
 
     std::unordered_map<std::string, Material*> m_material_map;
 

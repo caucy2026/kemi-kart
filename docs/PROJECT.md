@@ -23,6 +23,7 @@
 |------|------|
 | [`docs/requirements.md`](./docs/requirements.md) | **双屏对战需求文档 v1.1.0** — 功能需求（F1-F5）、非功能需求、验收条件 |
 | [`docs/cl.md`](./docs/cl.md) | **版本变更记录** — v1.1.0 统一触控架构、双 MultitouchDevice、HUD 完整渲染 |
+| [`docs/dual-screen-performance.md`](./docs/dual-screen-performance.md) | **双屏性能分析与优化记录** — 固定测试入口、分段时序、每玩家 fence/动态资源、orientation 卡顿修复、真机数据与审查结论 |
 | [`docs/stk-android-build.md`](./docs/stk-android-build.md) | **Android 编译记录** — NDK 26.1 + arm64-v8a 编译命令、依赖库清单、关键参数说明 |
 | [`docs/dual_cursor_plan.md`](./docs/dual_cursor_plan.md) | **双光标实现计划** — SMouseInput DeviceID、CIrrDeviceStub 双光标、EventHandler 按设备跟踪 |
 

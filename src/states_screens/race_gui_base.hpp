@@ -260,6 +260,7 @@ public:
     virtual void clearAllMessages() { m_messages.clear(); }
 
     void drawGlobalPlayerIcons(int bottom_margin);
+    void drawPerformanceStats();
     void drawPlayerIcon(AbstractKart *kart, int x, int y, int w,
                         bool is_local);
     

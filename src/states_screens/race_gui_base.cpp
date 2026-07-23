@@ -43,6 +43,7 @@
 #include "karts/kart_properties.hpp"
 #include "karts/kart_properties_manager.hpp"
 #include "karts/rescue_animation.hpp"
+#include "main_loop.hpp"
 #include "modes/capture_the_flag.hpp"
 #include "modes/linear_world.hpp"
 #include "modes/world.hpp"
@@ -85,6 +86,8 @@ struct PerformanceStats
     uint64_t m_last_process_ticks = 0;
     uint64_t m_last_system_ticks = 0;
     core::stringw m_text = L"FPS -- | CPU -- | GPU -- | MEM --";
+    core::stringw m_timing_text = L"FRAME -- | SIM -- | RENDER --";
+    core::stringw m_camera_text = L"CAM0 -- | CAM1 -- | SWAP0 -- | SWAP2 --";
 };
 
 PerformanceStats g_performance_stats;
@@ -197,6 +200,19 @@ void updatePerformanceStats()
             fps, cpu_percent, rss_kb / 1024.0f);
     }
     g_performance_stats.m_text = text;
+
+    const DualScreenPerfStats& timing = dualScreenPerfGetStats();
+    if (timing.m_frames > 0)
+    {
+        std::swprintf(text, 128, L"FRAME %.1f | SIM %.1f | RENDER %.1f ms",
+            timing.m_frame_ms, timing.m_simulation_ms, timing.m_render_ms);
+        g_performance_stats.m_timing_text = text;
+        std::swprintf(text, 128,
+            L"CAM0 %.1f | CAM1 %.1f | SWAP0 %.1f | SWAP2 %.1f ms",
+            timing.m_camera_ms[0], timing.m_camera_ms[1],
+            timing.m_swap_d0_ms, timing.m_swap_d2_ms);
+        g_performance_stats.m_camera_text = text;
+    }
 }
 }
 #endif
@@ -597,6 +613,12 @@ void RaceGUIBase::drawPowerupIcons(const AbstractKart* kart,
  */
 void RaceGUIBase::renderGlobal(float dt)
 {
+    drawPerformanceStats();
+}   // renderGlobal
+
+// ---------------------------------------------------------------------------
+void RaceGUIBase::drawPerformanceStats()
+{
 #ifdef ANDROID
     updatePerformanceStats();
 
@@ -613,10 +635,25 @@ void RaceGUIBase::renderGlobal(float dt)
     font->setThinBorder(true);
     font->draw(g_performance_stats.m_text, position,
         video::SColor(255, 255, 255, 255), false, false);
+    const int line_height = text_size.Height;
+    position.UpperLeftCorner.Y += line_height;
+    position.LowerRightCorner.Y += line_height;
+    position.UpperLeftCorner.X = screen_size.Width -
+        font->getDimension(g_performance_stats.m_timing_text.c_str()).Width -
+        right_margin;
+    font->draw(g_performance_stats.m_timing_text, position,
+        video::SColor(255, 255, 255, 255), false, false);
+    position.UpperLeftCorner.Y += line_height;
+    position.LowerRightCorner.Y += line_height;
+    position.UpperLeftCorner.X = screen_size.Width -
+        font->getDimension(g_performance_stats.m_camera_text.c_str()).Width -
+        right_margin;
+    font->draw(g_performance_stats.m_camera_text, position,
+        video::SColor(255, 255, 255, 255), false, false);
     font->setThinBorder(false);
     font->setBlackBorder(false);
 #endif
-}   // renderGlobal
+}   // drawPerformanceStats
 
 // ----------------------------------------------------------------------------
 /** Update, called once per frame. This updates the height of the referee
