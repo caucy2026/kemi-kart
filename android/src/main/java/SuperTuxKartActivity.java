@@ -6,6 +6,8 @@ import android.app.ActivityOptions;
 import android.content.Intent;
 import android.content.res.Configuration;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.Process;
 import android.view.Display;
 
@@ -64,12 +66,21 @@ public class SuperTuxKartActivity extends SDLActivity {
     @Override
     protected void onUserLeaveHint() {
         super.onUserLeaveHint();
-        if (mPresentation != null) {
-            mPresentation.dismiss();
-        }
-        finishAffinity();
-        // Force-kill ensures no SDL thread residue on next cold start
-        android.os.Process.killProcess(android.os.Process.myPid());
+        forceExitApp();
+    }
+
+    /** Called by native race UI when the player chooses "Exit Race". */
+    public void forceExitApp() {
+        runOnUiThread(() -> {
+            if (mPresentation != null) {
+                mPresentation.dismiss();
+            }
+            finishAndRemoveTask();
+            new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                android.os.Process.killProcess(android.os.Process.myPid());
+                System.exit(0);
+            }, 250);
+        });
     }
 
     public int getScreenSize() {

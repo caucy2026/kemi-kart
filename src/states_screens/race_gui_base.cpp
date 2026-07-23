@@ -59,6 +59,15 @@
 #include <IrrlichtDevice.h>
 #include <ICameraSceneNode.h>
 
+#ifdef ANDROID
+#include <cstdint>
+#include <cstdlib>
+#include <cwchar>
+#include <fstream>
+#include <sstream>
+#include <string>
+#endif
+
 namespace irr
 {
     namespace video
@@ -66,6 +75,131 @@ namespace irr
         extern bool useCoreContext;
     }
 }
+
+#ifdef ANDROID
+namespace
+{
+struct PerformanceStats
+{
+    uint64_t m_last_sample_ms = 0;
+    uint64_t m_last_process_ticks = 0;
+    uint64_t m_last_system_ticks = 0;
+    core::stringw m_text = L"FPS -- | CPU -- | GPU -- | MEM --";
+};
+
+PerformanceStats g_performance_stats;
+
+uint64_t readProcessTicks()
+{
+    std::ifstream stat_file("/proc/self/stat");
+    std::string line;
+    if (!std::getline(stat_file, line))
+        return 0;
+
+    const std::string::size_type command_end = line.rfind(')');
+    if (command_end == std::string::npos)
+        return 0;
+
+    std::istringstream fields(line.substr(command_end + 2));
+    std::string value;
+    uint64_t user_ticks = 0;
+    uint64_t system_ticks = 0;
+    for (int field = 3; fields >> value; field++)
+    {
+        if (field == 14)
+            user_ticks = std::strtoull(value.c_str(), NULL, 10);
+        else if (field == 15)
+        {
+            system_ticks = std::strtoull(value.c_str(), NULL, 10);
+            break;
+        }
+    }
+    return user_ticks + system_ticks;
+}
+
+uint64_t readSystemTicks()
+{
+    std::ifstream stat_file("/proc/stat");
+    std::string label;
+    stat_file >> label;
+    if (label != "cpu")
+        return 0;
+
+    uint64_t total_ticks = 0;
+    uint64_t value = 0;
+    for (int field = 0; field < 8 && stat_file >> value; field++)
+        total_ticks += value;
+    return total_ticks;
+}
+
+long readResidentMemoryKB()
+{
+    std::ifstream status_file("/proc/self/status");
+    std::string key;
+    while (status_file >> key)
+    {
+        if (key == "VmRSS:")
+        {
+            long rss_kb = 0;
+            status_file >> rss_kb;
+            return rss_kb;
+        }
+        std::string rest_of_line;
+        std::getline(status_file, rest_of_line);
+    }
+    return 0;
+}
+
+int readGPUUtilization()
+{
+    std::ifstream gpu_file("/sys/class/misc/mali0/device/utilization");
+    int utilization = -1;
+    gpu_file >> utilization;
+    if (utilization < 0 || utilization > 100)
+        return -1;
+    return utilization;
+}
+
+void updatePerformanceStats()
+{
+    const uint64_t now_ms = irr_driver->getRealTime();
+    if (g_performance_stats.m_last_sample_ms != 0 &&
+        now_ms - g_performance_stats.m_last_sample_ms < 1000)
+        return;
+
+    const uint64_t process_ticks = readProcessTicks();
+    const uint64_t system_ticks = readSystemTicks();
+    float cpu_percent = 0.0f;
+    if (g_performance_stats.m_last_process_ticks != 0 &&
+        system_ticks > g_performance_stats.m_last_system_ticks)
+    {
+        cpu_percent = 100.0f *
+            (process_ticks - g_performance_stats.m_last_process_ticks) /
+            (system_ticks - g_performance_stats.m_last_system_ticks);
+    }
+
+    g_performance_stats.m_last_sample_ms = now_ms;
+    g_performance_stats.m_last_process_ticks = process_ticks;
+    g_performance_stats.m_last_system_ticks = system_ticks;
+
+    const int fps = irr_driver->getVideoDriver()->getFPS();
+    const int gpu_percent = readGPUUtilization();
+    const long rss_kb = readResidentMemoryKB();
+    wchar_t text[128];
+    if (gpu_percent >= 0)
+    {
+        std::swprintf(text, 128, L"FPS %d | CPU %.1f%% | GPU %d%% | MEM %.0f MB",
+            fps, cpu_percent, gpu_percent, rss_kb / 1024.0f);
+    }
+    else
+    {
+        std::swprintf(text, 128, L"FPS %d | CPU %.1f%% | GPU N/A | MEM %.0f MB",
+            fps, cpu_percent, rss_kb / 1024.0f);
+    }
+    g_performance_stats.m_text = text;
+}
+}
+#endif
 
 RaceGUIBase::RaceGUIBase()
 {
@@ -463,7 +597,25 @@ void RaceGUIBase::drawPowerupIcons(const AbstractKart* kart,
  */
 void RaceGUIBase::renderGlobal(float dt)
 {
+#ifdef ANDROID
+    updatePerformanceStats();
 
+    gui::ScalableFont* font = GUIEngine::getSmallFont();
+    const core::dimension2du text_size =
+        font->getDimension(g_performance_stats.m_text.c_str());
+    const core::dimension2du& screen_size = irr_driver->getActualScreenSize();
+    const int right_margin = 16;
+    const int top_margin = 12;
+    core::rect<s32> position(
+        screen_size.Width - text_size.Width - right_margin, top_margin,
+        screen_size.Width - right_margin, top_margin + text_size.Height);
+    font->setBlackBorder(true);
+    font->setThinBorder(true);
+    font->draw(g_performance_stats.m_text, position,
+        video::SColor(255, 255, 255, 255), false, false);
+    font->setThinBorder(false);
+    font->setBlackBorder(false);
+#endif
 }   // renderGlobal
 
 // ----------------------------------------------------------------------------

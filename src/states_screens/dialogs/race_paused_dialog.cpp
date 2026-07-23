@@ -54,6 +54,11 @@
 
 #include <IrrlichtDevice.h>
 
+#ifdef ANDROID
+#include <SDL_system.h>
+#include <jni.h>
+#endif
+
 #ifndef SERVER_ONLY
 #include <ge_main.hpp>
 #include <ge_vulkan_driver.hpp>
@@ -62,6 +67,29 @@
 using namespace GUIEngine;
 using namespace irr::core;
 using namespace irr::gui;
+
+#ifdef ANDROID
+static void forceExitAndroidApp()
+{
+    JNIEnv* env = (JNIEnv*)SDL_AndroidGetJNIEnv();
+    jobject activity = env ? (jobject)SDL_AndroidGetActivity() : NULL;
+    if (!env || !activity)
+        return;
+
+    jclass activity_class = env->GetObjectClass(activity);
+    if (activity_class)
+    {
+        jmethodID method = env->GetMethodID(activity_class,
+            "forceExitApp", "()V");
+        if (method)
+            env->CallVoidMethod(activity, method);
+        if (env->ExceptionCheck())
+            env->ExceptionClear();
+        env->DeleteLocalRef(activity_class);
+    }
+    env->DeleteLocalRef(activity);
+}
+#endif
 
 // ----------------------------------------------------------------------------
 
@@ -340,6 +368,7 @@ GUIEngine::EventPropagation
                 STKHost::get()->shutdown();
             }
 #ifdef ANDROID
+              forceExitAndroidApp();
               main_loop->abort();
               return GUIEngine::EVENT_BLOCK;
 #endif
