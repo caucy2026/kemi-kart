@@ -1,62 +1,63 @@
 # STK 双屏异显 — 版本记录
 
-## v1.6.6 (2026-07-23) — 平台编译优化：Cortex-A55 + Mali-G52 专项调优
-
-### 硬件平台
-
-| 组件 | 规格 |
-|---|---|
-| SoC | Rockchip RK3566/RK3568 (huanglong) |
-| CPU | 4× Cortex-A55 @ ARMv8.2-A |
-| CPU 特性 | NEON/ASIMD、AES、SHA1/SHA2、CRC32 |
-| GPU | ARM Mali-G52，OpenGL ES 3.2 |
-| 内存 | 5.7GB（~3.1GB 可用） |
+## v1.6.6.1 (2026-07-23) — 编译优化修正：Cortex-A73 替代 A55
 
 ### 问题
 
-原 `Android.mk` 主代码编译段只有 `-D` 宏定义，**没有任何编译器优化标志**，
-使用 NDK 默认保守设置（等价 `-O0` 或 `-Os`），Cortex-A55 的特性
-（NEON、CRC、Crypto）完全未被利用。
+v1.6.6 错误使用 `-mcpu=cortex-a55` 编译。CPU part 0xd09 实际是 **Cortex-A73**
+（ARMv8.0-A），不是 Cortex-A55（ARMv8.2-A）。`-mcpu=cortex-a55` 生成了
+ARMv8.2 dot-product 指令，Cortex-A73 无法执行 → **SIGILL** 闪退。
 
-### 优化内容
+### 修正
 
-**`android/Android.mk`** — `LOCAL_MODULE := main` 段新增 `arm64-v8a` 专项：
+```makefile
+# 修正前（错误）
+-mcpu=cortex-a55 -funroll-loops -fstrict-aliasing
+
+# 修正后（正确）
+-mcpu=cortex-a73 -fomit-frame-pointer
+```
+
+移除 `-funroll-loops`：Cortex-A73 分支预测器有限，循环展开可能降低性能。
+移除 `-fstrict-aliasing`：`-O3` 已隐含启用。
+
+### 正确硬件规格
+
+| 组件 | 规格 |
+|---|---|
+| CPU | **4× Cortex-A73** @ ARMv8.0-A（非 A55/ARMv8.2） |
+| CPU 特性 | NEON/ASIMD、AES、SHA1/SHA2、CRC32 |
+| 不支持 | ARMv8.2 dot-product、FP16 |
+| GPU | Mali-G52，OpenGL ES 3.2 |
+
+### 最终优化标志
 
 ```makefile
 ifeq ($(TARGET_ARCH_ABI), arm64-v8a)
   LOCAL_ARM_NEON   := true
-  LOCAL_CFLAGS     += -O3 -mcpu=cortex-a55 -flto=thin \
-                      -fomit-frame-pointer -funroll-loops -fstrict-aliasing
-  LOCAL_CPPFLAGS   += -O3 -mcpu=cortex-a55 -flto=thin \
-                      -fomit-frame-pointer -funroll-loops -fstrict-aliasing
-  LOCAL_LDFLAGS    += -flto=thin -O3 -mcpu=cortex-a55
+  LOCAL_CFLAGS     += -O3 -mcpu=cortex-a73 -flto=thin -fomit-frame-pointer
+  LOCAL_CPPFLAGS   += -O3 -mcpu=cortex-a73 -flto=thin -fomit-frame-pointer
+  LOCAL_LDFLAGS    += -flto=thin -O3 -mcpu=cortex-a73
 endif
 ```
 
-| 标志 | 作用 |
-|---|---|
-| `-O3` | 最高级别优化（循环向量化、函数内联、指令调度） |
-| `-mcpu=cortex-a55` | 生成 Cortex-A55 专用指令，启用 NEON/CRC/Crypto |
-| `-flto=thin` | 全项目链接时优化（跨 .o 内联 + 死代码消除） |
-| `-fomit-frame-pointer` | 释放 x29 寄存器给通用计算 |
-| `-funroll-loops` | 展开小循环，减少分支预测失败 |
-| `-fstrict-aliasing` | 启用严格别名分析，允许更激进的指令重排 |
-| `LOCAL_ARM_NEON := true` | 显式启用 NEON SIMD 指令集 |
+### 验证
 
-### 效果
+| 指标 | v1.6.6 (A55) | v1.6.6.1 (A73) |
+|---|---|---|
+| 崩溃 | **SIGILL 闪退** | 0 |
+| APK | 145 MB | 145 MB |
+| 编译时间 | 1m53s | 1m52s |
 
-| 指标 | 优化前 | 优化后 | 变化 |
-|---|---|---|---|
-| APK 大小 | 157 MB | **145 MB** | -12 MB（LTO 死代码消除） |
-| libmain.so | ~30 MB | **26 MB** | -4 MB |
-| 编译时间 | ~5s | ~1m53s | O3+LTO 正常 |
-| 崩溃 | 0 | 0 | 稳定 |
+---
+
+## v1.6.6 (2026-07-23) — 平台编译优化：Cortex-A73 + Mali-G52 专项调优（已被 .1 修正覆盖）
 
 ### 改动文件
 
 | 文件 | 改动 |
 |---|---|
-| `android/Android.mk` | 新增 arm64-v8a 优化段 |
+| `android/Android.mk` | 新增 arm64-v8a 优化段（v1.6.6.1 修正） |
 
 ---
 
