@@ -30,6 +30,7 @@
 #include "graphics/material_manager.hpp"
 #include "graphics/referee.hpp"
 #include "guiengine/modaldialog.hpp"
+#include "guiengine/engine.hpp"
 #include "guiengine/scalable_font.hpp"
 #include "io/file_manager.hpp"
 #include "items/attachment_manager.hpp"
@@ -37,6 +38,7 @@
 #include "karts/abstract_kart.hpp"
 #include "karts/abstract_kart_animation.hpp"
 #include "karts/controller/controller.hpp"
+#include "karts/controller/local_player_controller.hpp"
 #include "karts/explosion_animation.hpp"
 #include "karts/kart_properties.hpp"
 #include "karts/kart_properties_manager.hpp"
@@ -47,6 +49,7 @@
 #include "network/protocols/client_lobby.hpp"
 #include "network/network_config.hpp"
 #include "states_screens/race_gui_multitouch.hpp"
+#include "states_screens/state_manager.hpp"
 #include "tracks/track.hpp"
 #include "utils/constants.hpp"
 #include "utils/string_utils.hpp"
@@ -642,22 +645,36 @@ void RaceGUIBase::drawGlobalMusicDescription()
     const MusicInformation* mi = music_manager->getCurrentMusic();
     if (!mi) return;
 
-    // I18N: string used to show the song title (e.g. "Sunny Song")
-    core::stringw thetext = _("\"%s\"", mi->getTitle());
+    // Show auto-drive state for the kart that belongs to the current display.
+    // This keeps D0/D2 independent instead of always reading player 0.
+    bool auto_on = false;
+    if (World::getWorld())
+    {
+        int player_id = 0;
+#ifdef ANDROID
+        extern bool g_dual_screen_mode;
+        if (g_dual_screen_mode && GUIEngine::getCurrentDisplayId() == 2)
+            player_id = 1;
+#endif
+        StateManager::ActivePlayer* player =
+            StateManager::get()->getActivePlayer(player_id);
+        AbstractKart* k = player ? player->getKart() : NULL;
+        if (k)
+        {
+            const LocalPlayerController* lpc =
+                dynamic_cast<const LocalPlayerController*>(k->getController());
+            if (lpc)
+                auto_on = lpc->isAutoDriveWanted();
+        }
+    }
+    core::stringw thetext = auto_on
+        ? L"自动驾驶已打开" : L"自动驾驶已关闭";
 
     core::dimension2d< u32 > textSize = font->getDimension(thetext.c_str());
     int textWidth = textSize.Width;
 
     int textWidth2 = 0;
-    core::stringw thetext_composer;
-    if (mi->getComposer()!="")
-    {
-        // I18N: string used to show the author of the music. (e.g. "Sunny Song" by "John Doe")
-        thetext_composer = _("by");
-        thetext_composer += " ";
-        thetext_composer += mi->getComposer().c_str();
-        textWidth2 = font->getDimension(thetext_composer.c_str()).Width;
-    }
+    core::stringw thetext_composer;  // not shown
     const int max_text_size = (int)(irr_driver->getActualScreenSize().Width*2.0f/3.0f);
     if (textWidth  > max_text_size) textWidth  = max_text_size;
     if (textWidth2 > max_text_size) textWidth2 = max_text_size;
@@ -699,21 +716,8 @@ void RaceGUIBase::drawGlobalMusicDescription()
     font->draw(gls, pos, white, true /* hcenter */,
                true /* vcenter */);
 
-    // Draw music icon
-    if (m_music_icon != NULL)
-    {
-        int iconSizeX = (int)(ICON_SIZE*resize + x_pulse*resize*resize);
-        int iconSizeY = (int)(ICON_SIZE*resize + y_pulse*resize*resize);
-    
-        core::rect<s32> dest(noteX-iconSizeX/2+fheight,
-                             noteY-iconSizeY/2+ICON_SIZE/2,
-                             noteX+iconSizeX/2+fheight,
-                             noteY+iconSizeY/2+ICON_SIZE/2);
-        const core::rect<s32> source(core::position2d<s32>(0,0),
-                                     m_music_icon->getSize());
-    
-        draw2DImage(m_music_icon, dest, source, NULL, NULL, true);
-    }
+    // Music icon hidden (auto-drive state shown instead).
+    (void)noteX; (void)noteY; (void)ICON_SIZE; (void)resize; (void)x_pulse; (void)y_pulse;
 #endif
 }   // drawGlobalMusicDescription
 

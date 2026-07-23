@@ -34,6 +34,7 @@
 #include "items/powerup.hpp"
 #include "karts/abstract_kart.hpp"
 #include "karts/controller/player_controller.hpp"
+#include "karts/controller/skidding_ai.hpp"
 #include "karts/kart_properties.hpp"
 #include "karts/skidding.hpp"
 #include "karts/rescue_animation.hpp"
@@ -45,6 +46,7 @@
 #include "network/rewind_manager.hpp"
 #include "race/history.hpp"
 #include "states_screens/race_gui_base.hpp"
+#include "tracks/drive_graph.hpp"
 #include "tracks/track.hpp"
 #include "utils/constants.hpp"
 #include "utils/log.hpp"
@@ -93,6 +95,11 @@ LocalPlayerController::LocalPlayerController(AbstractKart *kart,
     m_unfull_sound = SFXManager::get()->getBuffer("energy_bar_unfull");
 
     m_is_above_nitro_target = false;
+    m_auto_drive_ai = NULL;
+    m_auto_drive_active = false;
+    m_auto_drive_wanted = UserConfigParams::m_multitouch_auto_drive;
+    m_auto_drive_stuck_time = 0.0f;
+    m_auto_drive_last_pos = Vec3(0,0,0);
     initParticleEmitter();
 }   // LocalPlayerController
 
@@ -102,6 +109,8 @@ LocalPlayerController::LocalPlayerController(AbstractKart *kart,
 LocalPlayerController::~LocalPlayerController()
 {
     m_wee_sound->deleteSFX();
+    if (m_auto_drive_ai)
+        delete m_auto_drive_ai;
 }   // ~LocalPlayerController
 
 //-----------------------------------------------------------------------------
@@ -139,6 +148,10 @@ void LocalPlayerController::reset()
     m_last_crash = 0;
     m_sound_schedule = false;
     m_has_started = false;
+    m_auto_drive_active = false;
+    m_auto_drive_stuck_time = 0.0f;
+    if (m_auto_drive_ai)
+        m_auto_drive_ai->reset();
 }   // reset
 
 // ----------------------------------------------------------------------------
@@ -249,12 +262,217 @@ void LocalPlayerController::update(int ticks)
 {
     if (UserConfigParams::m_gamepad_debug)
     {
-        // Print a dividing line so that it's easier to see which events
-        // get received in which order in the one frame.
-        Log::debug("LocalPlayerController", "irr_driver", "-------------------------------------");
+        Log::debug("LocalPlayerController", "irr_driver",
+                   "-------------------------------------");
     }
 
-    PlayerController::update(ticks);
+    // ── ROOT CAUSE FIX ──────────────────────────────────────────
+    // When auto-drive is actively steering the kart, we must NOT call
+    // PlayerController::update().  Its steer() method pulls the steer
+    // value toward 0 every frame (the "return-to-center" behaviour for
+    // digital input devices).  This creates a tug-of-war with the AI:
+    //   Frame N:   AI sets steer = 0.5
+    //   Frame N+1: PlayerController::steer() → steer -= decay → 0.45
+    //              AI tries to recover → can't track the curve
+    // NPC AI karts don't suffer from this because the SkiddingAI IS
+    // their primary controller — there is no PlayerController fighting
+    // it.
+    //
+    // We still call PlayerController::update() during the start-phase
+    // countdown (when m_auto_drive_active is false) so that penalty
+    // detection works normally.
+    if (!m_auto_drive_active)
+    {
+        PlayerController::update(ticks);
+    }
+
+    const bool player_nitro = m_controls->getNitro();
+    const KartControl::SkidControl player_skid = m_controls->getSkidControl();
+    const bool player_rescue = m_controls->getRescue();
+    const bool player_fire = m_controls->getFire();
+    const bool player_look_back = m_controls->getLookBack();
+
+    // ---- Auto-drive: AI takes over when player is not steering ----
+    if (m_auto_drive_wanted)
+    {
+        // Check if player is actively steering or accelerating
+        bool player_active = (m_steer_val != 0) ||
+                             (m_prev_accel != 0) ||
+                             (m_prev_brake != 0);
+
+        // Don't engage during countdown or kart animations
+        if (!player_active && !m_kart->getKartAnimation() &&
+            !World::getWorld()->isStartPhase())
+        {
+            // Create (or recreate after disengage) the AI lazily,
+            // only when we are actually about to engage.  This avoids
+            // recreating the AI every frame during the 3-2-1 start phase
+            // when isStartPhase() is true and m_auto_drive_active never
+            // transitions.
+            if (!m_auto_drive_active)
+            {
+                if (m_auto_drive_ai)
+                    delete m_auto_drive_ai;
+                m_auto_drive_ai = new SkiddingAI(m_kart);
+                {
+                    const DriveGraph* dg = DriveGraph::get();
+                    const int num_nodes = dg ? dg->getNumNodes() : -1;
+                    const std::string track_name = Track::getCurrentTrack()
+                        ? Track::getCurrentTrack()->getIdent().c_str() : "??";
+                    Log::info("LocalPlayerController",
+                        "Auto-drive AI created | track=%s driveGraphNodes=%d "
+                        "worldKart=%d speed=%.1f pos=(%.1f,%.1f,%.1f)",
+                        track_name.c_str(), num_nodes,
+                        m_kart->getWorldKartId(), m_kart->getSpeed(),
+                        m_kart->getXYZ().getX(), m_kart->getXYZ().getY(),
+                        m_kart->getXYZ().getZ());
+                }
+
+                m_auto_drive_active = true;
+                const DriveGraph* dg = DriveGraph::get();
+                const int nodes = dg ? dg->getNumNodes() : -1;
+                Log::info("LocalPlayerController",
+                    "Auto-drive ENGAGED | worldKart=%d track=%s nodes=%d "
+                    "pos=(%.1f,%.1f,%.1f)",
+                    m_kart->getWorldKartId(),
+                    Track::getCurrentTrack()
+                        ? Track::getCurrentTrack()->getIdent().c_str() : "??",
+                    nodes,
+                    m_kart->getXYZ().getX(), m_kart->getXYZ().getY(),
+                    m_kart->getXYZ().getZ());
+                World::getWorld()->getRaceGUI()->addMessage(
+                    L"自动驾驶已打开", m_kart, 2.0f,
+                    video::SColor(255, 80, 220, 80), false, true, true);
+            }
+            m_auto_drive_ai->update(ticks);
+
+            // DIAGNOSTIC: log AI steering every 60 frames
+            static int s_ai_diag = 0;
+            ++s_ai_diag;
+            const bool diag_now = (s_ai_diag % 60 == 1);
+            if (diag_now && m_auto_drive_ai)
+            {
+                const KartControl* ac = m_auto_drive_ai->getControls();
+                Log::info("LocalPlayerController",
+                    "AI-diag: steer=%.3f accel=%.3f brake=%d speed=%.1f "
+                    "pos=(%.1f,%.1f,%.1f) worldKart=%d",
+                    ac ? ac->getSteer() : -99.f,
+                    ac ? ac->getAccel() : -99.f,
+                    ac ? (int)ac->getBrake() : -1,
+                    m_kart->getSpeed(),
+                    m_kart->getXYZ().getX(),
+                    m_kart->getXYZ().getY(),
+                    m_kart->getXYZ().getZ(),
+                    m_kart->getWorldKartId());
+            }
+
+            // WARNING: AI engaged but outputting nothing for ~3s
+            // This usually means the track's DriveGraph has no valid path
+            // from the kart's current position (off-track spawn, corrupted
+            // navmesh, or incorrect findRoadSector result).
+            static int s_ai_zero_output = 0;
+            if (m_auto_drive_active && m_auto_drive_ai)
+            {
+                const KartControl* ac = m_auto_drive_ai->getControls();
+                if (ac && ac->getSteer() == 0.0f && ac->getAccel() == 0.0f
+                    && !ac->getBrake() && fabsf(m_kart->getSpeed()) < 1.0f)
+                {
+                    s_ai_zero_output++;
+                }
+                else
+                {
+                    s_ai_zero_output = 0;
+                }
+                if (s_ai_zero_output == 180)  // ~3 seconds at 60fps
+                {
+                    const DriveGraph* dg = DriveGraph::get();
+                    Log::warn("LocalPlayerController",
+                        "AI-ZERO: AI engaged but steer=accel=brake=0 for 3s! "
+                        "worldKart=%d track=%s nodes=%d speed=%.1f "
+                        "pos=(%.1f,%.1f,%.1f) — possible DriveGraph issue",
+                        m_kart->getWorldKartId(),
+                        Track::getCurrentTrack()
+                            ? Track::getCurrentTrack()->getIdent().c_str() : "??",
+                        dg ? dg->getNumNodes() : -1,
+                        m_kart->getSpeed(),
+                        m_kart->getXYZ().getX(), m_kart->getXYZ().getY(),
+                        m_kart->getXYZ().getZ());
+                }
+            }
+
+            // Sync AI steering/accel/brake to the kart's actual controls.
+            // SkiddingAI writes to its own m_controls, not the kart's —
+            // we must copy the values for the kart to respond.
+            const KartControl* ai_ctrl = m_auto_drive_ai->getControls();
+            if (ai_ctrl)
+            {
+                m_controls->setSteer(ai_ctrl->getSteer());
+                m_controls->setAccel(ai_ctrl->getAccel());
+                if (ai_ctrl->getBrake())
+                    m_controls->setBrake(true);
+                else
+                    m_controls->setBrake(false);
+            }
+
+            // Preserve player's explicit action buttons while AI controls steering.
+            if (player_nitro)
+                m_controls->setNitro(true);
+            if (player_skid != KartControl::SC_NONE)
+                m_controls->setSkidControl(player_skid);
+            if (player_rescue)
+                m_controls->setRescue(true);
+            if (player_fire)
+                m_controls->setFire(true);
+            if (player_look_back)
+                m_controls->setLookBack(true);
+
+            // ---- Stuck detection: rescue only if kart truly hasn't moved ----
+            float dt = stk_config->ticks2Time(ticks);
+            Vec3 current_pos = m_kart->getXYZ();
+            float dist_moved = (current_pos - m_auto_drive_last_pos).length();
+            m_auto_drive_last_pos = current_pos;
+
+            // Require BOTH low speed AND no movement for 3+ seconds.
+            if (dist_moved < 0.15f && fabsf(m_kart->getSpeed()) < 2.0f &&
+                !m_kart->getKartAnimation())
+            {
+                m_auto_drive_stuck_time += dt;
+                if (m_auto_drive_stuck_time > 3.0f)
+                {
+                    Log::info("LocalPlayerController",
+                              "Auto-drive stuck for %.1fs (dist=%.2f), triggering rescue",
+                              m_auto_drive_stuck_time, dist_moved);
+                    RescueAnimation::create(m_kart);
+                    m_auto_drive_stuck_time = 0.0f;
+                }
+            }
+            else
+            {
+                m_auto_drive_stuck_time = 0.0f;
+            }
+        }
+        else if (player_active)
+        {
+            // Player is steering → disengage auto-drive
+            if (m_auto_drive_active)
+            {
+                m_auto_drive_active = false;
+                Log::info("LocalPlayerController", "Auto-drive DISENGAGED");
+                World::getWorld()->getRaceGUI()->addMessage(
+                    L"自动驾驶已关闭", m_kart, 2.0f,
+                    video::SColor(255, 200, 200, 200), false, true, true);
+            }
+        }
+    }
+    else if (m_auto_drive_active)
+    {
+        // Auto-drive was ON but config was toggled OFF
+        m_auto_drive_active = false;
+        Log::info("LocalPlayerController", "Auto-drive DISENGAGED (config off)");
+        World::getWorld()->getRaceGUI()->addMessage(
+            L"自动驾驶已关闭", m_kart, 2.0f,
+            video::SColor(255, 200, 200, 200), false, true, true);
+    }
 
     // look backward when the player requests or
     // if automatic reverse camera is active

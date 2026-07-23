@@ -96,6 +96,26 @@ void KartHoverListener::onSelectionChanged(DynamicRibbonWidget* theWidget,
 {
     assert(m_magic_number == 0xCAFEC001);
 
+#ifdef ANDROID
+    extern bool g_dual_screen_mode;
+    if (g_dual_screen_mode)
+    {
+        const GUIEngine::EventHandler* eh = GUIEngine::EventHandler::get();
+        if (eh)
+        {
+            const int expected_player = (eh->getLastTouchDevice() == 2) ? 1 : 0;
+            if (player_id != expected_player)
+            {
+                static int s_cross_filter_log = 0;
+                if (++s_cross_filter_log <= 30)
+                    Log::info("KartHover", "drop cross-display callback: pid=%d expected=%d lastTouchDev=%d",
+                              player_id, expected_player, eh->getLastTouchDevice());
+                return;
+            }
+        }
+    }
+#endif
+
     static int s_sel_log = 0;
     if (++s_sel_log <= 30)
         Log::info("KartHover", "onSelectionChanged: player_id=%d sel=%s widgets=%d",
@@ -848,6 +868,19 @@ void KartSelectionScreen::playerConfirm(const int player_id)
     const int available_kart_count = (int) w->getItems().size();
     const bool will_need_duplicates = (amount > available_kart_count);
 
+#ifdef ANDROID
+    extern bool g_dual_screen_mode;
+    // Dual-screen: two players may share the same local profile (identity),
+    // but must NOT select the same kart — otherwise the race stalls because
+    // validateKartChoices() refuses to let both be ready with the same kart,
+    // and neither player can unready or proceed.
+    const bool allow_ident_conflict = g_dual_screen_mode;
+    const bool allow_kart_conflict = false;
+#else
+    const bool allow_ident_conflict = false;
+    const bool allow_kart_conflict = false;
+#endif
+
     // make sure no other player selected the same identity or kart
     for (int n=0; n<amount; n++)
     {
@@ -862,15 +895,19 @@ void KartSelectionScreen::playerConfirm(const int player_id)
         const bool kart_conflict  = sameKart(m_kart_widgets[n],
                                              m_kart_widgets[player_id]);
 
-        if (player_ready && (ident_conflict || kart_conflict) &&
+        const bool blocked_ident_conflict = ident_conflict && !allow_ident_conflict;
+
+        const bool blocked_kart_conflict = kart_conflict && !allow_kart_conflict;
+
+        if (player_ready && (blocked_ident_conflict || blocked_kart_conflict) &&
                 !will_need_duplicates)
         {
             if (UserConfigParams::logGUI())
                 Log::warn("KartSelectionScreen", "You can't select this identity "
                        "or kart, someone already took it!!");
 
-            Log::warn("KartSelection", "playerConfirm: conflict with ready player=%d (pid=%d)",
-                      n, player_id);
+            Log::warn("KartSelection", "playerConfirm: conflict with ready player=%d (pid=%d, ident=%d, kart=%d)",
+                      n, player_id, ident_conflict ? 1 : 0, kart_conflict ? 1 : 0);
             SFXManager::get()->quickSound( "anvil" );
             return;
         }
@@ -1254,7 +1291,9 @@ void KartSelectionScreen::eventCallback(Widget* widget,
         {
             DynamicRibbonWidget* w = getWidget<DynamicRibbonWidget>("karts");
             const std::string selection = w ? w->getSelectionIDString(pid) : "<null-widget>";
-            Log::info("KartSelection", "continue: pid=%d selection='%s'", pid, selection.c_str());
+            const std::string widget_sel = m_kart_widgets[pid].getKartInternalName();
+            Log::info("KartSelection", "continue: pid=%d selection='%s' widgetSel='%s'",
+                      pid, selection.c_str(), widget_sel.c_str());
             playerConfirm(pid);
         }
         else
@@ -1497,6 +1536,26 @@ void KartSelectionScreen::allPlayersDone()
         extern bool g_dual_screen_mode;
         if (g_dual_screen_mode)
         {
+            // --- Final safety: forbid identical karts ---
+            // playerConfirm() should already reject duplicates, but if a
+            // future code path lets two players become ready with the same
+            // kart (e.g. random-kart collision or config restore), refuse
+            // to enter track selection and keep both screens on the kart
+            // selection screen so the conflict is visible.
+            if (m_kart_widgets.size() >= 2 &&
+                m_kart_widgets[0].getKartInternalName() ==
+                m_kart_widgets[1].getKartInternalName() &&
+                m_kart_widgets[0].getKartInternalName() != RANDOM_KART_ID)
+            {
+                Log::error("KartSelection",
+                    "allPlayersDone: P0 and P1 have the SAME kart '%s'! "
+                    "This should have been rejected by playerConfirm(). "
+                    "Refusing to start race — press Back to re-enter kart "
+                    "selection.",
+                    m_kart_widgets[0].getKartInternalName().c_str());
+                return;
+            }
+
             // Both karts are locked. Keep MENU state while P0 selects the
             // track and D2 shows the waiting view; no World exists yet.
             UserConfigParams::m_multitouch_active = 2;   // forced on

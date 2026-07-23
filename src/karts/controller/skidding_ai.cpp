@@ -400,6 +400,7 @@ void SkiddingAI::handleSteering(float dt)
     const int next = m_next_node_index[m_track_node];
 
     float steer_angle = 0.0f;
+    Vec3   aim_point(0,0,0);   // set by findNonCrashingPoint below
 
     /*The AI responds based on the information we just gathered, using a
      *finite state machine.
@@ -466,7 +467,6 @@ void SkiddingAI::handleSteering(float dt)
     else
     {
         m_start_kart_crash_direction = 0;
-        Vec3 aim_point;
         int last_node = Graph::UNKNOWN_SECTOR;
 
         switch(m_point_selection_algorithm)
@@ -496,6 +496,30 @@ void SkiddingAI::handleSteering(float dt)
 
         steer_angle = steerToPoint(aim_point);
     }  // if m_current_track_direction!=LEFT/RIGHT
+
+    // DIAGNOSTIC: log AI path-following internals every 60 steer calls
+    {
+        static int s_path_diag = 0;
+        ++s_path_diag;
+        if (s_path_diag % 60 == 1)
+        {
+            const DriveGraph* dg = DriveGraph::get();
+            Log::info("SkiddingAI",
+                "AI-path: node=%d next=%d dir=%d side=%.2f aim=(%.1f,%.1f,%.1f) "
+                "steerAngle=%.3f steerFrac=%.3f curveRad=%.1f speed=%.1f "
+                "nodes=%d worldKart=%d",
+                m_track_node,
+                (m_track_node >= 0 && dg) ? m_next_node_index[m_track_node] : -1,
+                (int)m_current_track_direction, side_dist,
+                aim_point.getX(), aim_point.getY(), aim_point.getZ(),
+                steer_angle,
+                steer_angle / (m_kart->getMaxSteerAngle() > 0.001f
+                    ? m_kart->getMaxSteerAngle() : 1.0f),
+                m_current_curve_radius, m_kart->getSpeed(),
+                dg ? dg->getNumNodes() : -1,
+                m_kart->getWorldKartId());
+        }
+    }
 
     setSteering(steer_angle, dt);
 }   // handleSteering

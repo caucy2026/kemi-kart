@@ -72,6 +72,10 @@ namespace GUIEngine
         /** Dual-screen: DeviceID of the last touch/mouse event.
          *  Used to route ribbon hover to the correct player. */
         int  m_last_touch_device;
+
+        /** Dual-screen: DeviceID captured on latest pointer press.
+         *  Used for click ownership so passive hover/move can't steal it. */
+        int  m_last_touch_press_device;
         
         EventPropagation onGUIEvent(const irr::SEvent& event);
         EventPropagation onWidgetActivated(Widget* w, const int playerID, Input::InputType type);
@@ -86,6 +90,10 @@ namespace GUIEngine
 
         /** Last position of the mouse cursor, per display [0]=D0 [1]=D2 */
         irr::core::vector2di     m_mouse_pos[2];
+
+        /** Android dual-screen: allow only a short burst of hover events
+         *  right after a real touch input, to avoid passive cross-screen hover. */
+        int m_touch_hover_budget;
 
     public:
 
@@ -112,6 +120,12 @@ namespace GUIEngine
 
         /** Get the mouse position for a given device (0=Display0, 2=Display2) */
         const irr::core::vector2di& getMousePos(size_t dev=0) const { return m_mouse_pos[dev == 2 ? 1 : 0]; }
+
+        /** Get the most recent touch/mouse device id used for GUI routing. */
+        int getLastTouchDevice() const { return m_last_touch_device; }
+
+        /** Get the most recent pointer-press device id for click ownership. */
+        int getLastTouchPressDevice() const { return m_last_touch_press_device; }
 
         /** singleton access */
         static EventHandler* get();

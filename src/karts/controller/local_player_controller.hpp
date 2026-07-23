@@ -22,12 +22,14 @@
 #define HEADER_LOCAL_PLAYER_CONTROLLER_HPP
 
 #include "karts/controller/player_controller.hpp"
+#include "utils/vec3.hpp"
 #include <memory>
 
 class AbstractKart;
 class SFXBase;
 class SFXBuffer;
 class btTransform;
+class SkiddingAI;
 
 #ifndef SERVER_ONLY
 class ParticleEmitter;
@@ -61,6 +63,17 @@ private:
 
     HandicapLevel m_handicap;
 
+    /** AI controller for auto-drive mode. Created lazily when first needed. */
+    SkiddingAI* m_auto_drive_ai;
+    /** Whether auto-drive is currently active (AI is controlling the kart). */
+    bool        m_auto_drive_active;
+    /** Per-player auto-drive toggle (independent per screen in dual mode). */
+    bool        m_auto_drive_wanted;
+    /** Accumulated time the kart has been nearly stationary under auto-drive. */
+    float       m_auto_drive_stuck_time;
+    /** Last position for stuck detection (checks actual movement, not speed). */
+    Vec3        m_auto_drive_last_pos;
+
     SFXBase     *m_wee_sound;
     SFXBuffer   *m_bzzt_sound;
     SFXBuffer   *m_ugh_sound;
@@ -93,6 +106,9 @@ public:
     virtual void finishedRace      (float time) OVERRIDE;
     virtual void resetInputState   () OVERRIDE;
     virtual bool canGetAchievements() const OVERRIDE;
+    // ---- Per-player auto-drive (independent per screen in dual mode) ----
+    bool isAutoDriveWanted() const          { return m_auto_drive_wanted; }
+    void toggleAutoDrive()                  { m_auto_drive_wanted = !m_auto_drive_wanted; }
 
     virtual void crashed(const AbstractKart *k) OVERRIDE;
     virtual void crashed(const Material *m) OVERRIDE;

@@ -63,12 +63,18 @@ private:
     video::ITexture* m_up_tex;
     video::ITexture* m_down_tex;
     video::ITexture* m_screen_tex;
+    video::ITexture* m_auto_drive_on_tex;
+    video::ITexture* m_auto_drive_off_tex;
+
+    // Per-device previous auto-drive button state for edge detection.
+    bool m_auto_btn_was_pressed[2];
 
     void init();
     void createRaceGUI();
     void createSpectatorGUI();
     void close();
     static void onCustomButtonPress(unsigned int button_id, bool pressed);
+    static void onAutoDriveButtonPress(unsigned int button_id, bool pressed);
 
 public:
      RaceGUIMultitouch(RaceGUIBase* race_gui);

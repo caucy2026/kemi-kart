@@ -33,10 +33,33 @@ using namespace irr;
 #include "items/powerup.hpp"
 #include "karts/abstract_kart.hpp"
 #include "karts/controller/kart_control.hpp"
+#include "karts/controller/local_player_controller.hpp"
+#include "modes/world.hpp"
 #include "network/protocols/client_lobby.hpp"
 #include "states_screens/race_gui_base.hpp"
+#include "states_screens/state_manager.hpp"
+#include "utils/log.hpp"
 
 #include <IrrlichtDevice.h>
+
+namespace
+{
+    const unsigned int AUTO_DRIVE_P0_BUTTON_ID = 100;
+    const unsigned int AUTO_DRIVE_P1_BUTTON_ID = 101;
+
+    AbstractKart* getLocalPlayerKart(int player_id)
+    {
+        StateManager::ActivePlayer* player =
+            StateManager::get()->getActivePlayer(player_id);
+        return player ? player->getKart() : NULL;
+    }
+
+    const LocalPlayerController* getAutoDriveController(const AbstractKart* kart)
+    {
+        return kart ? dynamic_cast<const LocalPlayerController*>(
+            kart->getController()) : NULL;
+    }
+}
 
 //-----------------------------------------------------------------------------
 /** The multitouch GUI constructor
@@ -64,6 +87,8 @@ RaceGUIMultitouch::RaceGUIMultitouch(RaceGUIBase* race_gui)
     m_up_tex = NULL;
     m_down_tex = NULL;
     m_screen_tex = NULL;
+    m_auto_btn_was_pressed[0] = false;
+    m_auto_btn_was_pressed[1] = false;
 
     m_device = input_manager->getDeviceManager()->getMultitouchDevice();
     m_device_2 = input_manager->getDeviceManager()->getMultitouchDevice2();
@@ -87,6 +112,10 @@ void RaceGUIMultitouch::reset()
     if (m_device != NULL)
     {
         m_device->reset();
+    }
+    if (m_device_2 != NULL)
+    {
+        m_device_2->reset();
     }
 }   // reset
 
@@ -120,6 +149,20 @@ void RaceGUIMultitouch::close()
             m_device->deactivateGyroscope();
         }
     }
+    if (m_device_2)
+    {
+        m_device_2->clearButtons();
+
+        if (m_device_2->isAccelerometerActive())
+        {
+            m_device_2->deactivateAccelerometer();
+        }
+
+        if (m_device_2->isGyroscopeActive())
+        {
+            m_device_2->deactivateGyroscope();
+        }
+    }
 }   // close
 
 //-----------------------------------------------------------------------------
@@ -135,7 +178,7 @@ void RaceGUIMultitouch::init()
     {
         UserConfigParams::m_multitouch_scale = 0.8f;
     }
-    
+
     m_steering_wheel_tex = irr_driver->getTexture(FileManager::GUI_ICON,
                                                   "android/steering_wheel.png");
     m_accelerator_tex = irr_driver->getTexture(FileManager::GUI_ICON,
@@ -159,6 +202,16 @@ void RaceGUIMultitouch::init()
     m_up_tex = irr_driver->getTexture(FileManager::GUI_ICON, "up.png");
     m_down_tex = irr_driver->getTexture(FileManager::GUI_ICON, "down.png");
     m_screen_tex = irr_driver->getTexture(FileManager::GUI_ICON, "screen_other.png");
+    m_auto_drive_on_tex  = irr_driver->getTexture(FileManager::GUI_ICON, "android/auto_drive.png");
+    m_auto_drive_off_tex = irr_driver->getTexture(FileManager::GUI_ICON, "android/auto_drive_off.png");
+    if (!m_auto_drive_on_tex)
+    {
+        Log::error("RaceGUIMultitouch", "auto_drive.png (ON icon) missing!");
+    }
+    if (!m_auto_drive_off_tex)
+    {
+        Log::error("RaceGUIMultitouch", "auto_drive_off.png (OFF icon) missing!");
+    }
     m_steering_wheel_tex_mask_up = irr_driver->getTexture(FileManager::GUI_ICON,
                                         "android/steering_wheel_mask_up.png");
     m_steering_wheel_tex_mask_down = irr_driver->getTexture(FileManager::GUI_ICON,
@@ -271,14 +324,44 @@ void RaceGUIMultitouch::createRaceGUI()
                         int(first_column_x), int(h - 1 * col_size),
                         int(btn_size), int(btn_size));
     
-    // Dual-screen: clone buttons to the second MultitouchDevice (Display 2→P1)
-    if (m_device_2 != NULL && m_device_2->getButtonsCount() == 0)
+    // Auto-drive: 72% size, same row as look-back mirror, near steering wheel.
+    const float auto_btn_sz = btn_size * 0.72f;
+    float auto_drive_x = steering_wheel_x + btn2_size + margin * 0.5f;
+    float auto_drive_y = h - col_size + 6.0f;
+    if (UserConfigParams::m_multitouch_inverted)
     {
-        for (unsigned int i = 0; i < m_device->getButtonsCount(); i++)
+        auto_drive_x = steering_wheel_x - auto_btn_sz - margin * 0.5f;
+    }
+    m_device->addButton(BUTTON_CUSTOM,
+                        int(auto_drive_x), int(auto_drive_y),
+                        int(auto_btn_sz), int(auto_btn_sz), onAutoDriveButtonPress);
+    m_device->getButton(m_device->getButtonsCount() - 1)->id =
+        AUTO_DRIVE_P0_BUTTON_ID;
+
+    // Dual-screen: ensure D2 has its own auto-drive button.
+    if (m_device_2 != NULL)
+    {
+        // Clone if empty, otherwise just update the auto-drive button.
+        if (m_device_2->getButtonsCount() == 0)
         {
-            MultitouchButton* btn = m_device->getButton(i);
-            m_device_2->addButton(btn->type, btn->x, btn->y,
-                                  btn->width, btn->height, btn->callback);
+            for (unsigned int i = 0; i < m_device->getButtonsCount(); i++)
+            {
+                MultitouchButton* btn = m_device->getButton(i);
+                m_device_2->addButton(btn->type, btn->x, btn->y,
+                                      btn->width, btn->height, btn->callback);
+                m_device_2->getButton(i)->id =
+                    (btn->id == AUTO_DRIVE_P0_BUTTON_ID)
+                    ? AUTO_DRIVE_P1_BUTTON_ID : btn->id;
+            }
+        }
+        else
+        {
+            // Update the auto-drive button on D2 (may already exist from clone).
+            for (unsigned int i = 0; i < m_device_2->getButtonsCount(); i++)
+            {
+                if (m_device_2->getButton(i)->id == AUTO_DRIVE_P0_BUTTON_ID)
+                    m_device_2->getButton(i)->id = AUTO_DRIVE_P1_BUTTON_ID;
+            }
         }
     }
 } // createRaceGUI
@@ -361,6 +444,63 @@ void RaceGUIMultitouch::onCustomButtonPress(unsigned int button_id,
 }
 
 //-----------------------------------------------------------------------------
+/** Callback function when auto-drive toggle button is pressed.
+ *  Toggles the mapped player's auto-drive state.
+ */
+void RaceGUIMultitouch::onAutoDriveButtonPress(unsigned int button_id,
+                                               bool pressed)
+{
+    if (!pressed)
+        return;
+
+    int player_id = -1;
+    if (button_id == AUTO_DRIVE_P0_BUTTON_ID)
+        player_id = 0;
+    else if (button_id == AUTO_DRIVE_P1_BUTTON_ID)
+        player_id = 1;
+    else
+        return;
+
+    World* w = World::getWorld();
+    if (!w)
+    {
+        Log::error("RaceGUIMultitouch", "Auto-drive P%d: world is NULL",
+                   player_id);
+        return;
+    }
+
+    AbstractKart* kart = getLocalPlayerKart(player_id);
+    if (!kart)
+    {
+        Log::error("RaceGUIMultitouch", "Auto-drive P%d: ActivePlayer has no kart",
+                   player_id);
+        return;
+    }
+
+    LocalPlayerController* lpc =
+        dynamic_cast<LocalPlayerController*>(kart->getController());
+    if (!lpc)
+    {
+        Log::error("RaceGUIMultitouch", "Auto-drive P%d: kart %d has no local controller",
+                   player_id, kart->getWorldKartId());
+        return;
+    }
+
+    lpc->toggleAutoDrive();
+    bool on = lpc->isAutoDriveWanted();
+
+    if (w->getRaceGUI())
+        w->getRaceGUI()->addMessage(
+            on ? L"自动驾驶已打开" : L"自动驾驶已关闭",
+            kart, 2.0f,
+            on ? video::SColor(255, 80, 220, 80)
+               : video::SColor(255, 200, 200, 200),
+            false, true, true);
+
+    Log::info("RaceGUIMultitouch", "Auto-drive P%d %s", player_id, on ? "ON" : "OFF");
+}
+
+//-----------------------------------------------------------------------------
 /** Draws the buttons for multitouch race GUI.
  *  \param kart The kart for which to show the data.
  *  \param viewport The viewport to use.
@@ -371,11 +511,24 @@ void RaceGUIMultitouch::draw(const AbstractKart* kart,
                              const core::vector2df &scaling)
 {
 #ifndef SERVER_ONLY
-    // Select the correct MultitouchDevice based on which player's kart
-    // is being rendered. Display 0 → m_device (P0), Display 2 → m_device_2 (P1).
+    // Select the device by ActivePlayer ownership, not world kart order.
     MultitouchDevice* dev = m_device;
-    if (kart != NULL && kart->getWorldKartId() == 1 && m_device_2 != NULL)
+    const bool is_player_1 = kart != NULL && kart == getLocalPlayerKart(1);
+    if (is_player_1 && m_device_2 != NULL)
         dev = m_device_2;
+
+    const int local_player_id = is_player_1 ? 1 : 0;
+    static bool s_logged_initial_state[2] = { false, false };
+    if (!s_logged_initial_state[local_player_id])
+    {
+        const LocalPlayerController* lpc = getAutoDriveController(kart);
+        Log::info("RaceGUIMultitouch",
+                  "Initial auto-drive P%d: worldKart=%d state=%s device=%s",
+                  local_player_id, kart ? kart->getWorldKartId() : -1,
+                  lpc && lpc->isAutoDriveWanted() ? "ON" : "OFF",
+                  is_player_1 ? "D2" : "D0");
+        s_logged_initial_state[local_player_id] = true;
+    }
     
     if (dev == NULL)
         return;
@@ -402,7 +555,6 @@ void RaceGUIMultitouch::draw(const AbstractKart* kart,
             
             // Use the actual kart's steering for visual feedback,
             // so each player's wheel shows independent rotation.
-            // (button->axis_x is shared across all players; kart steer is per-player.)
             float wheel_rotation = 0.0f;
             if (kart)
                 wheel_rotation = kart->getControls().getSteer();
@@ -523,6 +675,17 @@ void RaceGUIMultitouch::draw(const AbstractKart* kart,
                 {
                     btn_texture = m_screen_tex;
                 }
+                else if (button->id == AUTO_DRIVE_P0_BUTTON_ID ||
+                         button->id == AUTO_DRIVE_P1_BUTTON_ID)
+                {
+                    const LocalPlayerController* lpc =
+                        getAutoDriveController(kart);
+                    const bool auto_on = lpc && lpc->isAutoDriveWanted();
+                    video::ITexture* auto_tex = auto_on
+                        ? m_auto_drive_on_tex : m_auto_drive_off_tex;
+                    btn_texture = auto_tex;
+                    can_be_pressed = true;
+                }
                 break;
             default:
                 break;
@@ -530,11 +693,31 @@ void RaceGUIMultitouch::draw(const AbstractKart* kart,
 
             if (btn_texture)
             {
+                // Auto-drive: tint background green/grey so state is visible
+                // even if the icon PNG is faint on dark race scenes.
+                video::SColor bg_tint[4];
+                if (button->id == AUTO_DRIVE_P0_BUTTON_ID ||
+                    button->id == AUTO_DRIVE_P1_BUTTON_ID)
+                {
+                    const LocalPlayerController* lpc =
+                        getAutoDriveController(kart);
+                    const bool auto_on = lpc && lpc->isAutoDriveWanted();
+                    video::SColor c = auto_on
+                        ? video::SColor(200, 60, 200, 60)
+                        : video::SColor(200, 100, 100, 100);
+                    bg_tint[0] = bg_tint[1] = bg_tint[2] = bg_tint[3] = c;
+                }
+                else
+                {
+                    bg_tint[0] = bg_tint[1] = bg_tint[2] = bg_tint[3] =
+                        video::SColor(255, 255, 255, 255);
+                }
+
                 video::ITexture* btn_bg = (can_be_pressed && button->pressed) ?
                                                         m_bg_button_focus_tex :
                                                         m_bg_button_tex;
                 core::rect<s32> coords_bg(pos_zero, btn_bg->getSize());
-                draw2DImage(btn_bg, btn_pos_bg, coords_bg, NULL, NULL, true);
+                draw2DImage(btn_bg, btn_pos_bg, coords_bg, NULL, bg_tint, true);
 
                 core::rect<s32> coords(pos_zero, btn_texture->getSize());
                 draw2DImage(btn_texture, btn_pos, coords, NULL, NULL, true);

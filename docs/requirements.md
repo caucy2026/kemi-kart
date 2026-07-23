@@ -26,6 +26,10 @@
 - Display 2 触控 → Player 2 的方向盘（左转/右转/加速）
 - 虚拟方向盘要在副屏上也看得见！
 - 两边触摸互不干扰
+- 两名玩家的自动驾驶默认都开启，两个屏幕各显示绿色 ON 图标
+- Display 0 自动驾驶按钮只能切换 Player 1；Display 2 只能切换 Player 2
+- 自动驾驶关闭后，仅所属屏幕切换为灰色 OFF 图标，另一屏状态和 AI 不受影响
+- 每名玩家手动操作方向盘时只暂停自己的 AI 接管；释放控制后按自己的开关状态恢复
 
 ### F3. 选单流程（不改 STK 原有界面逻辑）
 
@@ -74,6 +78,9 @@
 | F2 虚拟方向盘(两屏) | ✅ | 两屏都有，用 kart->getSteer() 独立渲染 |
 | F2 触控分离 | ✅ | SDL 统一路径，按 routedDevId 分流 P0/P1 |
 | F2 道具按钮 | ✅ | FIRE/NITRO/DRIFT/LOOK_BACK 各屏独立 |
+| F2 自动驾驶按钮 | ✅ | 2026-07-23 实机验证；D0/P0、D2/P1 使用唯一按钮 ID 100/101 |
+| F2 自动驾驶状态 | ✅ | 每个 LocalPlayerController 独立持有；默认绿色 ON、关闭灰色 OFF |
+| F2 自动驾驶 AI 导航 | ✅ | v1.6.4 根因修复：跳过 PlayerController::update() 避免 steer 被拉回 0 |
 | F2 双屏 HUD | ✅ | minimap + timer + player list 全部两屏渲染 |
 | F3 选车(kart)独立两屏 | ✅ | ribbon高亮独立、3D模型独立、触控隔离 |
 | F3 选赛道(房主P0) | ⬜ | D0原生TracksAndGPScreen，D2"等待房主..." |
@@ -177,6 +184,10 @@ adb logcat -d | grep "P1.*enter\|sync\|both.*ready\|dual.*start"
 2. 硬编码坐标在不同分辨率下必然出错
 3. C++ 变量遮蔽（内层重声明覆盖外层）是经典陷阱
 4. 统一代码路径 >> 重复实现（删250行换5行核心改动）
+5. ActivePlayer ID 不等于 World kart 下标；本地玩家 kart 必须从 `ActivePlayer::getKart()` 获取
+6. 自定义触控按钮 ID 不能复用 `addButton()` 自动生成的数组下标
+7. 图标状态必须读取当前视图 kart 的 LocalPlayerController，不能使用共享配置作为运行时状态
+8. Controller::m_controls 是指向 kart->getControls() 的指针，不是副本——同一 kart 上多个 controller 共享同一份控制量。PlayerController::steer() 每帧把 steer 往 0 拉，会与 SkiddingAI 抢控制权导致 AI 只走直线
 
 ## 下一步优先级
 

@@ -62,6 +62,8 @@ EventHandler::EventHandler()
 {
     m_accept_events = false;
     m_last_touch_device = 0;
+    m_last_touch_press_device = 0;
+    m_touch_hover_budget = 0;
 }
 
 // -----------------------------------------------------------------------------
@@ -188,7 +190,10 @@ bool EventHandler::OnEvent (const SEvent &event)
             if (g_dual_screen_mode)
             {
                 m_last_touch_device = event.TouchInput.DeviceID;
+                if (event.TouchInput.Event == ETIE_PRESSED_DOWN)
+                    m_last_touch_press_device = event.TouchInput.DeviceID;
                 GUIEngine::setCurrentDisplayId(event.TouchInput.DeviceID);
+                m_touch_hover_budget = 6;
                 if (GUIEngine::getCurrentScreen())
                     GUIEngine::getCurrentScreen()->syncDisplayWidgets(
                         event.TouchInput.DeviceID);
@@ -209,13 +214,53 @@ bool EventHandler::OnEvent (const SEvent &event)
             switch (event.TouchInput.Event)
             {
             case ETIE_PRESSED_DOWN:
+            {
+                // First update hover target at touch position, then press.
+                // This avoids a stale previous hover target consuming the first tap.
+                SEvent moveEvent = mouseEvent;
+                moveEvent.MouseInput.Event = EMIE_MOUSE_MOVED;
+                moveEvent.MouseInput.ButtonStates = 0;
+                irr_driver->getDevice()->postEventFromUser(moveEvent);
+
                 mouseEvent.MouseInput.Event = EMIE_LMOUSE_PRESSED_DOWN;
                 mouseEvent.MouseInput.ButtonStates = EMBSM_LEFT;
                 break;
+            }
             case ETIE_LEFT_UP:
+            {
+#ifdef ANDROID
+                if (g_dual_screen_mode && event.TouchInput.DeviceID == 2)
+                {
+                    Widget* continue_w = GUIEngine::getWidget("continue");
+                    Widget* karts_w = GUIEngine::getWidget("karts");
+                    if (continue_w && karts_w && continue_w->isVisible() && continue_w->isActivated())
+                    {
+                        const int tx = event.TouchInput.X;
+                        const int ty = event.TouchInput.Y;
+                        const bool inside_continue =
+                            tx >= continue_w->m_x && tx <= continue_w->m_x + continue_w->m_w &&
+                            ty >= continue_w->m_y && ty <= continue_w->m_y + continue_w->m_h;
+
+                        if (inside_continue)
+                        {
+                            Screen* screen = GUIEngine::getCurrentScreen();
+                            if (screen)
+                            {
+                                std::string cb_name = "continue";
+                                Log::info("EventHandler",
+                                          "touch-fallback: trigger continue for D2 at (%d,%d)",
+                                          tx, ty);
+                                screen->eventCallback(continue_w, cb_name, 1);
+                                return true;
+                            }
+                        }
+                    }
+                }
+#endif
                 mouseEvent.MouseInput.Event = EMIE_LMOUSE_LEFT_UP;
                 mouseEvent.MouseInput.ButtonStates = 0;
                 break;
+            }
             case ETIE_MOVED:
                 mouseEvent.MouseInput.Event = EMIE_MOUSE_MOVED;
                 mouseEvent.MouseInput.ButtonStates = EMBSM_LEFT;
@@ -249,7 +294,20 @@ bool EventHandler::OnEvent (const SEvent &event)
     {
 #ifdef ANDROID
         if (g_dual_screen_mode && event.EventType == EET_MOUSE_INPUT_EVENT)
-            m_last_touch_device = event.MouseInput.DeviceID;
+        {
+            const bool is_pressed_event =
+                event.MouseInput.Event == EMIE_LMOUSE_PRESSED_DOWN ||
+                event.MouseInput.Event == EMIE_LMOUSE_LEFT_UP;
+            const bool is_drag_event =
+                event.MouseInput.Event == EMIE_MOUSE_MOVED &&
+                ((event.MouseInput.ButtonStates & EMBSM_LEFT) != 0);
+
+            if (is_pressed_event || is_drag_event)
+                m_last_touch_device = event.MouseInput.DeviceID;
+
+            if (event.MouseInput.Event == EMIE_LMOUSE_PRESSED_DOWN)
+                m_last_touch_press_device = event.MouseInput.DeviceID;
+        }
 #endif
 
         // Remember the mouse position per device
@@ -931,7 +989,7 @@ EventPropagation EventHandler::onGUIEvent(const SEvent& event)
                 {
                     int gmPlayerID = PLAYER_ID_GAME_MASTER;
 #ifdef ANDROID
-                    if (g_dual_screen_mode && m_last_touch_device == 2)
+                    if (g_dual_screen_mode && m_last_touch_press_device == 2)
                         gmPlayerID = 1;
 #endif
                     return onWidgetActivated(w, gmPlayerID, Input::IT_MOUSEBUTTON);
@@ -958,6 +1016,34 @@ EventPropagation EventHandler::onGUIEvent(const SEvent& event)
                               m_last_touch_device);
 
                 if (!w->isFocusable() || !w->isActivated()) return GUIEngine::EVENT_BLOCK;
+
+#ifdef ANDROID
+                if (g_dual_screen_mode)
+                {
+                    if (m_touch_hover_budget <= 0)
+                        break;
+                    m_touch_hover_budget--;
+
+                    const int expected_display = (m_last_touch_device == 2) ? 2 : 0;
+
+                    int widget_display = w->m_display_id;
+                    if (widget_display == -1 && w->m_event_handler)
+                        widget_display = w->m_event_handler->m_display_id;
+                    if (widget_display == 0 || widget_display == 2)
+                    {
+                        if (widget_display != expected_display)
+                        {
+                            static int s_drop_mismatch_hover = 0;
+                            if (++s_drop_mismatch_hover <= 40)
+                                Log::info("EventHandler",
+                                          "drop hover mismatch: widgetDisp=%d expectedDisp=%d lastTouchDev=%d widget=%s",
+                                          widget_display, expected_display, m_last_touch_device,
+                                          w->m_properties[PROP_ID].c_str());
+                            break;
+                        }
+                    }
+                }
+#endif
 
                 // When a modal dialog is shown, don't select widgets out of the dialog
                 if (ScreenKeyboard::isActive())
@@ -1006,8 +1092,8 @@ EventPropagation EventHandler::onGUIEvent(const SEvent& event)
                         Log::info("EventHandler", "ribbonHover: lastTouchDev=%d playerID=%d curDisp=%d",
                                   m_last_touch_device, playerID, GUIEngine::getCurrentDisplayId());
 
-                    ribbon->mouseHovered(w, playerID);
                     ribbon->setFocusForPlayer(playerID);
+                    ribbon->mouseHovered(w, playerID);
                     if (ribbon->m_event_handler != NULL) ribbon->m_event_handler->mouseHovered(w, playerID);
                     }
                 }

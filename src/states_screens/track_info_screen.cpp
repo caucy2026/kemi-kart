@@ -145,10 +145,7 @@ void TrackInfoScreen::init()
 
     getWidget<LabelWidget>("name")->setText(m_track->getName(), false);
 
-    //I18N: when showing who is the author of track '%s'
-    //I18N: (place %s where the name of the author should appear)
-    getWidget<LabelWidget>("author")->setText( _("Track by %s", m_track->getDesigner()),
-                                               false );
+    getWidget<LabelWidget>("author")->setText( L"KEMI双屏让AI从新定义新一代智能硬件", false );
 
     LabelWidget* max_players = getWidget<LabelWidget>("max-arena-players");
     max_players->setVisible(m_track->isArena());
@@ -655,6 +652,13 @@ void TrackInfoScreen::onEnterPressedInternal()
         RaceManager::get()->setNumRedAI(m_ai_kart_spinner->getValue());
         RaceManager::get()->setNumBlueAI(m_ai_blue_spinner->getValue());
     }
+    // Clear dual-screen waiting state before starting the race
+#ifdef ANDROID
+    extern bool g_dual_screen_show_p0_wait_message;
+    extern bool g_dual_screen_show_p1_wait_message;
+    g_dual_screen_show_p0_wait_message = false;
+    g_dual_screen_show_p1_wait_message = false;
+#endif
     RaceManager::get()->startSingleRace(m_track->getIdent(), num_laps, false);
 }   // onEnterPressedInternal
 

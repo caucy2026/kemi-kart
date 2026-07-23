@@ -1,5 +1,160 @@
 # STK 双屏异显 — 版本记录
 
+## v1.6.4 (2026-07-23) — 自动驾驶 AI 走直线根因修复
+
+### 症状
+
+自动驾驶 AI 不会转弯，只走直线，最终撞墙卡死。但同一地图上的 NPC AI（bot）正常驾驶。
+
+### 根因：PlayerController::steer() 与 SkiddingAI 抢同一个 m_controls
+
+**关键发现**：`Controller::Controller()` 初始化时 `m_controls = &(kart->getControls())`。
+所有附着在同一个 kart 上的 controller 实例共享**同一份** `m_controls` 指针，不是各自拥有副本。
+
+```text
+每帧执行顺序：
+  1. LocalPlayerController::update()
+  2.   → PlayerController::update()
+  3.     → steer(ticks, 0)          ← steer_val=0（无触控输入）
+  4.       steer = m_controls->getSteer()  ← 读到 AI 上一帧设置的值（如 0.5）
+  5.       steer -= STEER_CHANGE           ← 把方向往 0 拉！
+  6.       m_controls->setSteer(steer)     ← 覆盖为 0.45
+  7.   → auto-drive 代码
+  8.     → m_auto_drive_ai->update()       ← AI 的 setSteering() 尝试恢复
+  9.       → 从已衰减的 0.45 开始 ramp → 永远追不上弯道
+```
+
+**NPC AI 为什么正常**：NPC kart 的 controller 就是 `SkiddingAI`，没有 `PlayerController`
+在每帧抢控制权。`steer()` 是 player controller 专有的"回中"行为。
+
+### 修复
+
+`src/karts/controller/local_player_controller.cpp` — `update()` 中加一行条件判断：
+
+```cpp
+// auto-drive 激活时不调用 PlayerController::update()，避免 steer 被拉回 0
+if (!m_auto_drive_active)
+{
+    PlayerController::update(ticks);
+}
+```
+
+同时修复了 auto-drive AI 在比赛倒计时期间每帧重复创建的问题：
+- 根因：`m_auto_drive_ai == NULL || !m_auto_drive_active` 在 `isStartPhase()=true`
+  期间一直满足 → AI 每帧 delete + new
+- 修复：把 AI 创建移到接管点内部（惰性创建），倒计时期间不创建
+
+### 验证数据
+
+| 指标 | 修复前 | 修复后 |
+|---|---|---|
+| 最大 steer | 0.083 (8%) | 0.942 (94%) |
+| 速度 | 17→0 (卡墙) | 13-15 稳定 |
+| 连续驾驶时间 | ~15s 后卡住 | 55s+ 无中断 |
+| 卡墙/rescue | 触发 | 零次 |
+
+### 新加诊断日志
+
+为方便后续调试，在 `SkiddingAI::handleSteering()` 和 `LocalPlayerController::update()` 中
+增加了三级 AI 诊断日志：
+- `AI-path`: 每 60 帧输出 AI 内部跟踪节点、瞄准点、转向角、弯道半径
+- `AI-diag`: 增强版（含 worldKart ID）
+- `AI-ZERO`: AI 接管后 3 秒 steer/accel/brake 全零时告警（定位 DriveGraph 问题）
+
+### 改动文件
+
+| 文件 | 改动 |
+|---|---|
+| `src/karts/controller/local_player_controller.cpp` | AI 惰性创建 + 跳过 PlayerController::update() + 三级诊断日志 |
+| `src/karts/controller/skidding_ai.cpp` | AI-path 诊断日志 + aim_point 作用域修正 |
+| `data/gui/icons/android/auto_drive*.png` | 图标点对点 138×138 px |
+
+---
+
+## v1.6.3 (2026-07-23) — 双屏自动驾驶独立操作根治
+
+### 实机结果
+
+- Display 0 自动驾驶按钮只切换 Player 0；Display 2 只切换 Player 1。
+- 两名玩家默认 `m_auto_drive_wanted=true`，进入比赛均显示绿色 `auto_drive.png`。
+- 单独关闭某一玩家后，仅该屏切换为灰色 `auto_drive_off.png`，另一屏状态不变。
+- 两套虚拟方向盘、自动驾驶 AI 和状态图标使用同一套 ActivePlayer 所有权关系。
+
+### 两个根因
+
+#### 1. ActivePlayer ID 被错误当成 World kart 下标
+
+旧实现多处使用：
+
+```cpp
+World::getWorld()->getKart(player_id);
+```
+
+`player_id` 是本地 `ActivePlayer` 编号，`World::getKart()` 参数是世界 kart 数组下标。
+世界数组可能包含 AI 或网络 kart，两者没有稳定的一一对应关系。取错 kart 后，
+`dynamic_cast<LocalPlayerController*>` 失败，图标状态保留默认 `false`，因此默认显示灰色；
+按钮回调也可能切换错误 controller。
+
+修复为唯一正确路径：
+
+```text
+player_id -> StateManager::getActivePlayer(player_id)
+		  -> ActivePlayer::getKart()
+		  -> LocalPlayerController
+```
+
+绘制函数已经收到当前视图的 `const AbstractKart* kart`，图标和背景颜色直接从这个 kart
+的 controller 读取，不再二次通过 world 下标猜测。
+
+#### 2. 自动驾驶按钮 ID 与 FIRE 按钮冲突
+
+`MultitouchDevice::addButton()` 默认将按钮数组下标作为 ID。自动驾驶按钮创建前已有一个
+普通按钮使用 ID 5，旧实现又把自动驾驶硬编码为 ID 5。克隆 D2 按钮时，所有 ID 5 都被
+改为 15，导致两个不同按钮 ID 相同，回调和绘制不能可靠区分。
+
+修复为：
+
+```cpp
+AUTO_DRIVE_P0_BUTTON_ID = 100;
+AUTO_DRIVE_P1_BUTTON_ID = 101;
+```
+
+D2 克隆时只把自动驾驶 100 映射为 101；其他按钮 ID 不变。回调只接受 100/101，拒绝
+其他 ID，不使用 P0 fallback。
+
+### 图标规则
+
+| 状态 | 文件 | 显示 |
+|---|---|---|
+| ON（默认） | `data/gui/icons/android/auto_drive.png` | 绿色 |
+| OFF | `data/gui/icons/android/auto_drive_off.png` | 灰色 |
+
+`auto_drive_on.png` 不参与当前运行时加载。曾错误地根据文件名把它当作 ON 图，导致显示
+与产品定义不一致。以后必须查看图片实际像素，并对比源码、APK、设备解压目录的哈希，
+不能根据文件名猜测。
+
+### 代码改动
+
+| 文件 | 改动 |
+|---|---|
+| `src/states_screens/race_gui_multitouch.cpp` | 新增唯一按钮 ID 100/101；通过 ActivePlayer 获取 kart；图标直接读当前视图 controller；增加初始状态和错误日志 |
+| `src/states_screens/race_gui_base.cpp` | 全局状态提示按 current display 映射 ActivePlayer，不再固定读 world kart 0/1 |
+| `src/karts/controller/local_player_controller.cpp/.hpp` | 每名玩家独立持有 `m_auto_drive_wanted`、`m_auto_drive_active`、`SkiddingAI`；AI 接管 steer/accel/brake |
+| `src/input/input_manager.cpp` | 现有 DeviceID 路由：D0 -> multitouch 0，D2 -> multitouch 1 |
+| `src/input/device_manager.cpp` | 现有 ActivePlayer 绑定：multitouch 0 -> P0，multitouch 1 -> P1 |
+| `src/config/user_config.hpp` | `m_multitouch_auto_drive=true` 只作为两名 controller 的初始默认值 |
+
+### 防回归规则
+
+1. 禁止用 `World::getKart(player_id)` 查找本地玩家 kart。
+2. 自定义按钮 ID 必须避开 `addButton()` 自动分配的数组下标范围。
+3. 运行时状态必须存在 `LocalPlayerController`，不能写回共享 UserConfig。
+4. 图标绘制必须读取当前视图 kart 的 controller，不允许失败时默认为另一玩家或全局状态。
+5. 每次必须完成编译、ADB 安装、冷启动、双屏按钮操作、双屏截图和日志验证。
+
+详细架构与验收步骤见 `docs/dual_screen_kart_selection.md` 的“6.1 双屏自动驾驶独立操作”和
+“自动驾驶回归验收”。
+
 ## v1.6.2 (2026-07-21) — 双屏选车稳定性根治 + 启动流程精简 + APP图标完善
 
 ### 改动概要
