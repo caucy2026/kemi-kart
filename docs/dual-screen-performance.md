@@ -231,6 +231,37 @@ governor 为 `bifrost`，比赛期间观测到 600–700 MHz。编译参数不�
 
 临时 GPU timer query 探针已从最终代码移除。第一次 query 方案在该设备的 core query 入口上崩溃，且 timer query 会扰动 tile-based mobile GPU，因此只保留低开销 CPU 侧聚合统计。
 
+### 7.1 Mali EXT timer query 诊断结果
+
+2026-07-23 使用 `GL_EXT_disjoint_timer_query` 做了一次可回退真机诊断。探针只通过
+`eglGetProcAddress` 加载 `gl*Query*EXT` 入口，采用轮转 query 和延迟读取，不调用
+`glFinish`，并检查 `GL_GPU_DISJOINT_EXT`。固定 `abyss`、2P + 4AI 场景得到：
+
+```text
+Camera 0 GPU: 56 samples, avg 14.095 ms, min 10.066 ms, max 16.229 ms
+Camera 1 GPU: 56 samples, avg 13.372 ms, min 10.709 ms, max 16.642 ms
+
+Camera 1 deferred scene: avg 12.656 ms
+Camera 1 post-processing: avg 1.564 ms
+Camera 1 lighting: avg 6.739 ms
+Camera 1 solid: avg 2.658 ms
+Camera 1 transparent: avg 2.292 ms
+Camera 1 SSAO: avg 1.451 ms
+Camera 1 particles: avg 0.605 ms
+```
+
+因此 renderer 的主要压力位于 GPU deferred scene，粗粒度上 lighting 是最大项，
+最终 post-processing 不是当前首要瓶颈。测试时 GPU devfreq 处于 700–900 MHz，
+governor 为 `bifrost`。
+
+继续把 lighting 拆成 env/sun/point 后，各段 query 结果之和明显大于外层 lighting，
+同时驱动偶发返回接近 32 位无符号上限的无效纳秒值。这表明 Mali tile renderer
+会被细粒度 elapsed query 的 render-pass/tile flush 扰动；这些子项数据不能作为
+优化收益依据。后续若分析 lighting shader，应使用 Mali Offline Compiler 或硬件
+性能计数器，而不是在每个全屏 pass 周围继续增加 timer query。
+
+该探针仅用于诊断，完成采样后从最终代码和 APK 中移除。
+
 ## 9. 改动文件
 
 | 文件 | 最终用途 |
