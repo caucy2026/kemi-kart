@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="4096" height="4096" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="nappa" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#575452"/>
+      <stop offset="0.20" stop-color="#242321"/>
+      <stop offset="0.48" stop-color="#0c0d0c"/>
+      <stop offset="0.74" stop-color="#32302e"/>
+      <stop offset="1" stop-color="#111211"/>
+    </linearGradient>
+    <linearGradient id="wineLeather" x1="0" y1="0" x2="0.85" y2="1">
+      <stop offset="0" stop-color="#74545d"/>
+      <stop offset="0.28" stop-color="#3a2029"/>
+      <stop offset="0.70" stop-color="#170d12"/>
+      <stop offset="1" stop-color="#55343e"/>
+    </linearGradient>
+    <linearGradient id="champagne" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fff7df"/>
+      <stop offset="0.16" stop-color="#cbb98f"/>
+      <stop offset="0.34" stop-color="#665b44"/>
+      <stop offset="0.56" stop-color="#f0dfb7"/>
+      <stop offset="0.78" stop-color="#93815d"/>
+      <stop offset="1" stop-color="#f9edce"/>
+    </linearGradient>
+    <linearGradient id="satin" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#777b7a"/>
+      <stop offset="0.25" stop-color="#242726"/>
+      <stop offset="0.72" stop-color="#0b0c0c"/>
+      <stop offset="1" stop-color="#4e5250"/>
+    </linearGradient>
+    <linearGradient id="crystal" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.94"/>
+      <stop offset="0.22" stop-color="#dcecf1" stop-opacity="0.78"/>
+      <stop offset="0.50" stop-color="#6c7e85" stop-opacity="0.62"/>
+      <stop offset="0.72" stop-color="#f8ffff" stop-opacity="0.84"/>
+      <stop offset="1" stop-color="#728086" stop-opacity="0.70"/>
+    </linearGradient>
+    <radialGradient id="obsidian" cx="38%" cy="30%" r="78%">
+      <stop offset="0" stop-color="#575a58"/>
+      <stop offset="0.24" stop-color="#202321"/>
+      <stop offset="0.72" stop-color="#060707"/>
+      <stop offset="1" stop-color="#242725"/>
+    </radialGradient>
+    <radialGradient id="badge" cx="38%" cy="30%" r="75%">
+      <stop offset="0" stop-color="#436f8e"/>
+      <stop offset="0.42" stop-color="#15384f"/>
+      <stop offset="1" stop-color="#071824"/>
+    </radialGradient>
+    <linearGradient id="forwardLight" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f6edcf"/>
+      <stop offset="0.48" stop-color="#a9d5d7"/>
+      <stop offset="1" stop-color="#4c828b"/>
+    </linearGradient>
+    <linearGradient id="red" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ff9b9b"/>
+      <stop offset="1" stop-color="#94333d"/>
+    </linearGradient>
+    <pattern id="microPerf" width="12" height="12" patternUnits="userSpaceOnUse">
+      <circle cx="3" cy="3" r="1.15" fill="#bbaaa0" opacity="0.58"/>
+      <circle cx="9" cy="9" r="1.15" fill="#050505" opacity="0.82"/>
+    </pattern>
+    <pattern id="brushed" width="4" height="4" patternUnits="userSpaceOnUse">
+      <path d="M0 .8H4M0 2.2H4M0 3.5H4" stroke="#ffffff" stroke-width="0.35" opacity="0.15"/>
+    </pattern>
+    <filter id="shadow" x="-15%" y="-15%" width="130%" height="140%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="3.2" result="b"/>
+      <feOffset dy="4" result="o"/>
+      <feColorMatrix in="o" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .58 0"/>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="glow" x="-70%" y="-70%" width="240%" height="240%">
+      <feGaussianBlur stdDeviation="1.7" result="g"/>
+      <feMerge><feMergeNode in="g"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- The complete artwork is inset to the original wheel's visual mass. -->
+  <g transform="translate(256 256) scale(.973) translate(-256 -256)" filter="url(#shadow)">
+    <!-- Slim rear paddles -->
+    <path d="M90 164c-18 30-26 70-21 109l27-7c-3-31 3-59 19-82z" fill="url(#champagne)" stroke="#14130f" stroke-width="5"/>
+    <path d="M422 164c18 30 26 70 21 109l-27-7c3-31-3-59-19-82z" fill="url(#champagne)" stroke="#14130f" stroke-width="5"/>
+
+    <!-- Thin, two-tone Nappa leather rim -->
+    <circle cx="256" cy="256" r="219" fill="none" stroke="#030403" stroke-width="62"/>
+    <circle cx="256" cy="256" r="219" fill="none" stroke="url(#nappa)" stroke-width="53"/>
+    <path d="M91 128c-32 39-47 90-42 143" fill="none" stroke="url(#wineLeather)" stroke-width="48" stroke-linecap="round"/>
+    <path d="M421 128c32 39 47 90 42 143" fill="none" stroke="url(#wineLeather)" stroke-width="48" stroke-linecap="round"/>
+    <path d="M91 128c-32 39-47 90-42 143M421 128c32 39 47 90 42 143" fill="none" stroke="url(#microPerf)" stroke-width="39" stroke-linecap="round" opacity="0.86"/>
+    <circle cx="256" cy="256" r="193" fill="none" stroke="#d4bd91" stroke-width="2.2" stroke-dasharray="3 8" opacity="0.72"/>
+    <path d="M110 98c42-34 91-49 146-49s104 15 146 49" fill="none" stroke="#ffffff" stroke-width="3" opacity="0.13" stroke-linecap="round"/>
+
+    <!-- Floating champagne-gold twin spokes -->
+    <path d="M74 224l139 31 12 54-129-27c-25-5-40-26-37-49z" fill="url(#champagne)" stroke="#242118" stroke-width="7"/>
+    <path d="M438 224l-139 31-12 54 129-27c25-5 40-26 37-49z" fill="url(#champagne)" stroke="#242118" stroke-width="7"/>
+    <path d="M83 232l130 29M429 232l-130 29" fill="none" stroke="url(#brushed)" stroke-width="12" opacity="0.7"/>
+
+    <!-- Compact gloss-black touch islands -->
+    <path d="M92 231l111 26 8 37-100-20c-16-3-26-18-24-33z" fill="url(#obsidian)" stroke="#777064" stroke-width="2.5"/>
+    <path d="M420 231l-111 26-8 37 100-20c16-3 26-18 24-33z" fill="url(#obsidian)" stroke="#777064" stroke-width="2.5"/>
+
+    <!-- Crystal rollers -->
+    <g fill="url(#crystal)" stroke="#cbbf9f" stroke-width="2.5">
+      <rect x="126" y="243" width="22" height="41" rx="9"/>
+      <rect x="364" y="243" width="22" height="41" rx="9"/>
+    </g>
+    <g stroke="#273037" stroke-width="1.5" opacity="0.82">
+      <path d="M131 251h12M131 258h12M131 265h12M131 272h12M131 279h12"/>
+      <path d="M369 251h12M369 258h12M369 265h12M369 272h12M369 279h12"/>
+    </g>
+    <circle cx="174" cy="269" r="13" fill="#151716" stroke="#a99b7c" stroke-width="2.5"/>
+    <circle cx="338" cy="269" r="13" fill="#151716" stroke="#a99b7c" stroke-width="2.5"/>
+
+    <!-- Small suspended center pod, avoiding the oversized airbag look -->
+    <path d="M256 205c47 0 78 31 78 75 0 47-31 78-78 78s-78-31-78-78c0-44 31-75 78-75z" fill="url(#obsidian)" stroke="#121412" stroke-width="7"/>
+    <path d="M256 217c39 0 65 26 65 63 0 39-26 65-65 65s-65-26-65-65c0-37 26-63 65-63z" fill="none" stroke="#6f716d" stroke-width="2.5" opacity="0.55"/>
+    <ellipse cx="256" cy="276" rx="36" ry="31" fill="#070908" stroke="url(#champagne)" stroke-width="5"/>
+    <ellipse cx="256" cy="276" rx="26" ry="23" fill="url(#badge)" stroke="#c8d6d7" stroke-width="3"/>
+    <circle cx="256" cy="265" r="4.5" fill="#f5ead1"/>
+    <path d="M256 272c-1 7-1 13 0 19m-1-14c-7-1-12 2-16 7m17-7c7-2 13-7 17-13m-17 27-8 7m8-7 8 7" fill="none" stroke="#dcebed" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M240 285c7 4 12 5 16 5 6 0 12-3 18-8" fill="none" stroke="#7daeb4" stroke-width="1.4" stroke-linecap="round" opacity="0.9"/>
+    <path d="M210 239c20-19 73-22 95 0" fill="none" stroke="#ffffff" stroke-width="2.5" opacity="0.12" stroke-linecap="round"/>
+
+    <!-- Minimal lower bridge -->
+    <path d="M220 337l-23 99h118l-23-99c-23 15-49 15-72 0z" fill="url(#satin)" stroke="#151715" stroke-width="6"/>
+    <path d="M215 414h82" stroke="url(#champagne)" stroke-width="8" stroke-linecap="round"/>
+    <rect x="239" y="381" width="34" height="16" rx="8" fill="url(#crystal)" stroke="#8c8169" stroke-width="2"/>
+
+    <!-- Single forward light blade integrated into the leather rim -->
+    <g fill="none" stroke-linecap="round" stroke-linejoin="round" filter="url(#glow)">
+      <path d="M242 57l14-18 14 18" stroke="#0a0c0c" stroke-width="7" opacity="0.9"/>
+      <path d="M243 56l13-16 13 16" stroke="url(#forwardLight)" stroke-width="3.4"/>
+      <path d="M249 57l7-8 7 8" stroke="#e5f3ef" stroke-width="1.4" opacity="0.85"/>
+    </g>
+  </g>
+</svg>
