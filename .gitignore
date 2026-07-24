@@ -34,6 +34,8 @@ src/html
 *.o
 *.d
 *.a
+!android/deps-arm64-v8a/**/*.a
+!android/deps-armeabi-v7a/**/*.a
 *.patch
 *.diff
 *.obj
