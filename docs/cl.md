@@ -1,5 +1,29 @@
 # STK 双屏异显 — 版本记录
 
+## v1.6.10 (2026-07-25) — Git 仓库自包含构建修复
+
+### 结论
+
+- 修复 `.gitignore` 中 6 类规则导致 `git clone` 后无法编译的问题
+- 现在同事 clone 后 `./gradlew assembleDebug` 即可直接出 APK
+- 详见 [stk-android-build.md § Git 仓库自包含构建](./stk-android-build.md#git-仓库自包含构建--gitignore-踩坑全记录-2026-07-25)
+
+### 关键改动
+
+- `.gitignore`：4 处修改（2 条例外添加 + 3 条规则删除），解除对 deps/、SDL2 源码、shaderc 头文件的排除
+- 新增追踪：`android/deps-arm64-v8a/`、`android/deps-armeabi-v7a/`（~1.23GB）、`lib/sdl2/`（~79MB）、`lib/shaderc/`（~1.7MB）
+- mbedtls `.a` 文件因上游嵌套 `.gitignore` 需 `git add -f` 强制添加
+- deps 中嵌套 `.git` 目录已清理
+
+### 验证
+
+```text
+git clone --depth 1 git@github.com:caucy2026/kemi-kart.git /tmp/stk-test
+cd /tmp/stk-test/android && ./gradlew assembleDebug
+→ BUILD SUCCESSFUL
+→ APK 142MB, 双屏 D2 运行正常, PID 19666
+```
+
 ## v1.6.9 (2026-07-24) — 自动驾驶走停根因修复 + 临时诊断回收
 
 ### 结论

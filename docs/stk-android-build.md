@@ -215,3 +215,95 @@ cd android
 |------|-----|-----------|-----------|-----|
 | huanglong 平板 | 192.168.1.142 | 1920x1280 (内置) | 1920x1280 (外接) | Mali-G52 GLES 3.2 |
 | (离线) | 192.168.3.54 | - | - | - |
+
+---
+
+# Git 仓库自包含构建 — .gitignore 踩坑全记录 (2026-07-25)
+
+## 背景
+
+本地 `./gradlew assembleDebug` 能通过，但 `git clone` 后无法编译。根因是 `.gitignore` 中有多条规则排除了编译必需的源文件和预编译库——本地有文件所以能编过，clone 下来就没有。
+
+## 核心原则
+
+> **`git clone` 后只需 `./gradlew assembleDebug` 就能出 APK，不需要任何额外步骤。**
+
+## 被排除的关键文件及修复
+
+### 1. NDK 预编译依赖 `android/deps-*`（~1.23GB）
+
+- **现象**：`ndk-build` 报 `libopenal.a not found`
+- **gitignore 规则**：第67行 `android/deps-*` + 第97-100行 `android/deps-arm64-v8a/` 等
+- **修复**：移除这些 gitignore 行，提交 `deps-arm64-v8a/` 和 `deps-armeabi-v7a/` 全部内容
+- **注意**：deps 中存在嵌套 `.git` 目录（shaderc 第三方子模块构建残留，~159MB），提交前必须 `find -name '.git' -type d -exec rm -rf {} +` 清理
+
+### 2. `*.a` 全局规则误杀
+
+- **现象**：deps 目录已提交，但里面所有 `.a` 文件仍然缺失
+- **gitignore 规则**：第36行 `*.a`（通用 C/C++ 编译产物排除规则）
+- **修复**：在 `*.a` 行后添加例外：
+  ```
+  !android/deps-arm64-v8a/**/*.a
+  !android/deps-armeabi-v7a/**/*.a
+  ```
+
+### 3. `build*/` 规则误杀
+
+- **现象**：`freetype.a` 和 `harfbuzz.a` 仍然缺失
+- **gitignore 规则**：第2行 `build*/`
+- **影响路径**：`deps-*/freetype/build/` 和 `deps-*/harfbuzz/build/`
+- **修复**：在 `build*/` 行后添加例外：
+  ```
+  !android/deps-*/freetype/build/
+  !android/deps-*/harfbuzz/build/
+  ```
+
+### 4. mbedtls 嵌套 `.gitignore`
+
+- **现象**：`git add` 拒绝添加 `libmbedtls.a`、`libmbedcrypto.a`、`libmbedx509.a`
+- **原因**：`deps-*/mbedtls/library/.gitignore`（上游库自带）包含 `libmbed*` 规则
+- **修复**：`git add -f` 强制添加。不要删除上游 `.gitignore`（会影响 deps 重构建）
+
+### 5. `lib/sdl2` 源码（~79MB）
+
+- **现象**：NDK 编译报 `../lib/sdl2/src/atomic/SDL_atomic.c` 找不到
+- **gitignore 规则**：第92行 `lib/sdl2`
+- **原因**：`Android.mk` 第321行 `-I../lib/sdl2/include/` — SDL2 是从源码编译的，不是预编译 `.a`
+- **修复**：从 `.gitignore` 移除 `lib/sdl2`，提交 1,644 个源文件
+
+### 6. `lib/shaderc` 头文件（~1.7MB）
+
+- **现象**：`fatal error: 'shaderc/shaderc.h' file not found`
+- **gitignore 规则**：原第94行 `lib/shaderc`
+- **原因**：`Android.mk` 第203行 `-I../lib/shaderc/libshaderc/include`
+- **修复**：从 `.gitignore` 移除 `lib/shaderc`
+
+## 误判警告
+
+### NDK r26 `fcntl(): Bad file descriptor`
+
+- 这个警告在构建日志中大量出现（原始工作目录也有 ~999 条），但**不影响构建结果**
+- 是 NDK r26 在 macOS 上的已知问题，NDK 27+ 已修复
+- 若同事要彻底消除此警告，可将 `gradle.properties` 中 `ndk_version` 升级到 `27.0.12077973` 或更高
+- 但升级 NDK 可能引入新的编译兼容性问题（如 NDK 28 已移除 `ALooper_pollAll`）
+
+## 最终 gitignore 修改汇总
+
+| 行号 | 操作 | 说明 |
+|------|------|------|
+| 2 | 添加例外 | `!android/deps-*/freetype/build/` 和 `!android/deps-*/harfbuzz/build/` |
+| 36 | 添加例外 | `!android/deps-arm64-v8a/**/*.a` 和 `!android/deps-armeabi-v7a/**/*.a` |
+| 67 | 删除 | `android/deps-*` |
+| 92 | 删除 | `lib/sdl2` |
+| 94 | 删除 | `lib/shaderc` |
+| 97-100 | 删除 | `android/deps-arm64-v8a/` 等具体路径（已被第67行覆盖） |
+
+## 自包含验证命令
+
+```bash
+# 模拟同事全新 clone 后一键构建
+git clone --depth 1 git@github.com:caucy2026/kemi-kart.git /tmp/stk-test
+cd /tmp/stk-test/android
+./gradlew assembleDebug
+# 预期：BUILD SUCCESSFUL，产出 build/outputs/apk/debug/android-debug.apk (~142MB)
+```
