@@ -12,12 +12,18 @@ Files:
  nitro.png
  nitro_empty.png
  pause.png
- steering_wheel.png
  thunderbird_reset.png
  wing_mirror.png
 Copyright: Copyright 2017 Néd J. Édoire
 License: CC BY-SA 4.0
 Comment: Icons originally made for SuperTuxKart UI on Android.
+
+Files:
+ steering_wheel.png
+ steering_wheel_zunjie_preview.svg
+Copyright: Copyright 2026 Kemi Kart contributors
+License: CC-BY-SA 4.0
+Comment: Original unbranded executive-luxury steering wheel artwork created for Kemi Kart; it does not reproduce any manufacturer logo.
 
 Files:
  accelerator.png

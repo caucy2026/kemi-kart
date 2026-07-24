@@ -38,7 +38,7 @@ public:
         loadProgram(OBJECT, GL_VERTEX_SHADER, "primitive2dlist.vert",
                             GL_FRAGMENT_SHADER, "transparent.frag");
         assignUniforms("fullscreen");
-        assignSamplerNames(0, "tex", ST_BILINEAR_FILTERED);
+        assignSamplerNames(0, "tex", ST_SEMI_TRILINEAR);
     }   // Primitive2DList
 };   //Primitive2DList
 
