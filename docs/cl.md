@@ -1,5 +1,12 @@
 # STK 双屏异显 — 版本记录
 
+## v1.6.12 (2026-07-25) — 双屏平台 3D 开源项目推荐
+
+- 新增 [dual-screen-candidates.md](./dual-screen-candidates.md)：筛选 5 个可移植到 RK356x 双屏平台的 3D 开源项目
+- 第一梯队（低风险）：Xash3D (FPS)、Luanti (体素沙盒)、ioquake3 (FPS)
+- 第二梯队（RPG类）：OpenMW (开放世界RPG)、GemRB (等距RPG)
+- 含双屏移植共性路径对比和场景推荐
+
 ## v1.6.11 (2026-07-25) — 单屏改双屏异显移植文档
 
 - 新增 [dual-screen-porting-guide.md](./dual-screen-porting-guide.md)：从零到可玩的完整移植手册
