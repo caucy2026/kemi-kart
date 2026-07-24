@@ -1,5 +1,7 @@
 bld*/
 build*/
+!android/deps-*/freetype/build/
+!android/deps-*/harfbuzz/build/
 cmake_build*/
 xcode_build*/
 dependencies*/
@@ -87,7 +89,6 @@ lib/zlib
 lib/openal
 lib/openssl
 lib/harfbuzz
-lib/sdl2
 lib/mbedtls
 lib/astc-encoder
 lib/shaderc
