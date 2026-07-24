@@ -31,6 +31,16 @@
                 <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
             </intent-filter>
         </activity>
+
+        <activity android:name="org.libsdl.app.DualScreenActivity"
+                  android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen"
+                  android:launchMode="singleInstance"
+                  android:taskAffinity="org.supertuxkart.stk.secondary"
+                  android:excludeFromRecents="true"
+                  android:screenOrientation="reverseLandscape"
+                  android:configChanges="fontScale|keyboard|keyboardHidden|locale|mcc|mnc|navigation|orientation|screenLayout|screenSize|uiMode|layoutDirection|smallestScreenSize"
+                  android:resizeableActivity="true"
+                  android:exported="false" />
     </application>
 
     <uses-feature android:glEsVersion="0x00020000" />

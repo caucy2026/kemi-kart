@@ -61,7 +61,7 @@ xx
 
 android/android-ndk*
 android/android-sdk*
-android/assets
+# Keep the generated Android runtime asset package in this backup fork.
 android/bin
 android/build
 android/deps-*

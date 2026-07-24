@@ -945,7 +945,7 @@ void MainLoop::run()
 #ifdef ANDROID
             extern bool g_dual_screen_mode;
             if (g_dual_screen_mode)
-                max_fps = 30.0;
+                max_fps = std::min(max_fps, 45.0);
 #endif
 
             // Throttle fps if more than maximum, which can reduce

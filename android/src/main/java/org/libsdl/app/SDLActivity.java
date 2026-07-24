@@ -1,6 +1,7 @@
 package org.libsdl.app;
 
 import android.app.Activity;
+import android.app.ActivityOptions;
 import android.app.AlertDialog;
 import android.app.Dialog;
 import android.app.Presentation;
@@ -367,10 +368,21 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
             }
 
             if (secondDisplay != null) {
-                Log.v(TAG, "initDualScreen: creating Presentation on display " + secondDisplay.getDisplayId());
-                mPresentation = new DualScreenPresentation(this, secondDisplay);
-                mPresentation.show();
-                mDualScreenEnabled = true;
+                int displayId = secondDisplay.getDisplayId();
+                if (Build.VERSION.SDK_INT >= 26) {
+                    Log.v(TAG, "initDualScreen: launching Activity on display " + displayId);
+                    Intent intent = new Intent(this, DualScreenActivity.class)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    ActivityOptions options = ActivityOptions.makeBasic();
+                    options.setLaunchDisplayId(displayId);
+                    startActivity(intent, options.toBundle());
+                    mDualScreenEnabled = true;
+                } else {
+                    Log.v(TAG, "initDualScreen: creating Presentation on display " + displayId);
+                    mPresentation = new DualScreenPresentation(this, secondDisplay);
+                    mPresentation.show();
+                    mDualScreenEnabled = true;
+                }
             } else {
                 Log.v(TAG, "initDualScreen: no second display found, dual-screen disabled");
             }
@@ -685,6 +697,7 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
             mPresentation.destroy();
             mPresentation = null;
         }
+        DualScreenActivity.finishInstance();
         mDualScreenEnabled = false;
 
         if (mHIDDeviceManager != null) {

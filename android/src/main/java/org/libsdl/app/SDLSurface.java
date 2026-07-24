@@ -3,6 +3,8 @@ package org.libsdl.app;
 
 import android.content.Context;
 import android.content.pm.ActivityInfo;
+import android.graphics.PixelFormat;
+import android.graphics.Rect;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
@@ -15,6 +17,7 @@ import android.view.InputDevice;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.Surface;
+import android.view.SurfaceControl;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.View;
@@ -43,6 +46,10 @@ public class SDLSurface extends SurfaceView implements SurfaceHolder.Callback,
     // Dual-screen: which display this surface belongs to (0=main, 2=external)
     protected int mDisplayId = 0;
     protected int mTouchLogCount = 0;
+    protected SurfaceControl mSecondSurfaceControl;
+    protected Surface mSecondRenderSurface;
+    protected boolean mSecondSurfaceCreatedNotified;
+    protected volatile int mSecondSurfaceRotation = Surface.ROTATION_180;
 
     // Startup
     public SDLSurface(Context context) {
@@ -92,7 +99,124 @@ public class SDLSurface extends SurfaceView implements SurfaceHolder.Callback,
     }
 
     public Surface getNativeSurface() {
+        if (mSecondRenderSurface != null) {
+            return mSecondRenderSurface;
+        }
         return getHolder().getSurface();
+    }
+
+    private void updateSecondSurfaceTransform(int width, int height) {
+        if (Build.VERSION.SDK_INT < 29) {
+            return;
+        }
+
+        try {
+            if (mSecondSurfaceControl == null) {
+                mSecondSurfaceControl = new SurfaceControl.Builder()
+                    .setName("SDL Display 2 rotated surface")
+                    .setParent(getSurfaceControl())
+                    .setBufferSize(width, height)
+                    .setFormat(PixelFormat.RGBX_8888)
+                    .setOpaque(true)
+                    .build();
+                mSecondRenderSurface = new Surface(mSecondSurfaceControl);
+            }
+
+            int displayRotation = mDisplay.getRotation();
+            switch (displayRotation) {
+                case Surface.ROTATION_90:
+                    mSecondSurfaceRotation = Surface.ROTATION_270;
+                    break;
+                case Surface.ROTATION_270:
+                    mSecondSurfaceRotation = Surface.ROTATION_90;
+                    break;
+                default:
+                    mSecondSurfaceRotation = displayRotation;
+                    break;
+            }
+
+            int surfaceTransform;
+            switch (mSecondSurfaceRotation) {
+                case Surface.ROTATION_90:
+                    surfaceTransform = SurfaceControl.BUFFER_TRANSFORM_ROTATE_90;
+                    break;
+                case Surface.ROTATION_180:
+                    surfaceTransform = SurfaceControl.BUFFER_TRANSFORM_ROTATE_180;
+                    break;
+                case Surface.ROTATION_270:
+                    surfaceTransform = SurfaceControl.BUFFER_TRANSFORM_ROTATE_270;
+                    break;
+                default:
+                    surfaceTransform = SurfaceControl.BUFFER_TRANSFORM_IDENTITY;
+                    break;
+            }
+
+            SurfaceControl.Transaction transaction = new SurfaceControl.Transaction();
+            transaction.setBufferSize(mSecondSurfaceControl, width, height);
+            transaction.setGeometry(mSecondSurfaceControl,
+                new Rect(0, 0, width, height),
+                new Rect(0, 0, width, height),
+                surfaceTransform);
+            transaction.setVisibility(mSecondSurfaceControl, true);
+            transaction.apply();
+            transaction.close();
+            Log.v("SDL", "D2 rotation compensation: display=" + displayRotation
+                + " childRotation=" + mSecondSurfaceRotation
+                + " surfaceTransform=" + surfaceTransform
+                + " size=" + width + "x" + height);
+        } catch (RuntimeException e) {
+            Log.e("SDL", "Failed to create rotated D2 child surface", e);
+            releaseSecondRenderSurface();
+        }
+    }
+
+    private void releaseSecondRenderSurface() {
+        if (mSecondRenderSurface != null) {
+            mSecondRenderSurface.release();
+            mSecondRenderSurface = null;
+        }
+        if (mSecondSurfaceControl != null) {
+            mSecondSurfaceControl.release();
+            mSecondSurfaceControl = null;
+        }
+    }
+
+    public void refreshSecondSurfaceTransform() {
+        if (mDisplayId != 0 && mSecondSurfaceControl != null && mWidth > 1.0f && mHeight > 1.0f) {
+            updateSecondSurfaceTransform((int)mWidth, (int)mHeight);
+        }
+    }
+
+    private float transformTouchX(float x, float y) {
+        if (mDisplayId == 0) {
+            return x;
+        }
+        switch (mSecondSurfaceRotation) {
+            case Surface.ROTATION_90:
+                return y;
+            case Surface.ROTATION_180:
+                return 1.0f - x;
+            case Surface.ROTATION_270:
+                return 1.0f - y;
+            default:
+                return x;
+        }
+    }
+
+    private float transformTouchY(float x, float y) {
+        if (mDisplayId == 0) {
+            return y;
+        }
+        switch (mSecondSurfaceRotation) {
+            case Surface.ROTATION_90:
+                return 1.0f - x;
+            case Surface.ROTATION_180:
+                return 1.0f - y;
+            case Surface.ROTATION_270:
+                return x;
+            default:
+                return y;
+        }
     }
 
     // Called when we have a valid drawing surface
@@ -100,7 +224,10 @@ public class SDLSurface extends SurfaceView implements SurfaceHolder.Callback,
     public void surfaceCreated(SurfaceHolder holder) {
         Log.v("SDL", "surfaceCreated() display=" + mDisplayId);
         if (mDisplayId != 0) {
-            SDLActivity.onSecondSurfaceCreated(SDLSurface.this);
+            if (Build.VERSION.SDK_INT < 29) {
+                SDLActivity.onSecondSurfaceCreated(SDLSurface.this);
+                mSecondSurfaceCreatedNotified = true;
+            }
         } else {
             SDLActivity.onNativeSurfaceCreated();
         }
@@ -112,7 +239,11 @@ public class SDLSurface extends SurfaceView implements SurfaceHolder.Callback,
         Log.v("SDL", "surfaceDestroyed() display=" + mDisplayId);
 
         if (mDisplayId != 0) {
-            SDLActivity.onSecondSurfaceDestroyed();
+            if (mSecondSurfaceCreatedNotified) {
+                SDLActivity.onSecondSurfaceDestroyed();
+                mSecondSurfaceCreatedNotified = false;
+            }
+            releaseSecondRenderSurface();
         } else {
             SDLActivity.mNextNativeState = SDLActivity.NativeState.PAUSED;
             SDLActivity.handleNativeState();
@@ -137,9 +268,13 @@ public class SDLSurface extends SurfaceView implements SurfaceHolder.Callback,
             mWidth = width;
             mHeight = height;
             mIsSurfaceReady = true;
-            // Notify native about second display surface change
+            updateSecondSurfaceTransform(width, height);
+            if (!mSecondSurfaceCreatedNotified) {
+                SDLActivity.onSecondSurfaceCreated(SDLSurface.this);
+                mSecondSurfaceCreatedNotified = true;
+            }
             SDLActivity.onNativeSecondSurfaceChanged(
-                getHolder().getSurface(), width, height);
+                getNativeSurface(), width, height);
             return;
         }
 
@@ -236,7 +371,7 @@ public class SDLSurface extends SurfaceView implements SurfaceHolder.Callback,
         int action = event.getActionMasked();
         int pointerFingerId;
         int i = -1;
-        float x,y,p;
+        float x,y,p,rawX,rawY;
 
         // Dual-screen: use display ID as fixed touch device ID so SDL/STK
         // can deterministically route Display 0 → P0, Display 2 → P1.
@@ -286,8 +421,10 @@ public class SDLSurface extends SurfaceView implements SurfaceHolder.Callback,
                 case MotionEvent.ACTION_MOVE:
                     for (i = 0; i < pointerCount; i++) {
                         pointerFingerId = event.getPointerId(i);
-                        x = event.getX(i) / mWidth;
-                        y = event.getY(i) / mHeight;
+                        rawX = event.getX(i) / mWidth;
+                        rawY = event.getY(i) / mHeight;
+                        x = transformTouchX(rawX, rawY);
+                        y = transformTouchY(rawX, rawY);
                         p = event.getPressure(i);
                         if (p > 1.0f) p = 1.0f;
                         SDLActivity.onNativeTouch(routedDevId, pointerFingerId, action, x, y, p);
@@ -307,8 +444,10 @@ public class SDLSurface extends SurfaceView implements SurfaceHolder.Callback,
                     }
 
                     pointerFingerId = event.getPointerId(i);
-                    x = event.getX(i) / mWidth;
-                    y = event.getY(i) / mHeight;
+                    rawX = event.getX(i) / mWidth;
+                    rawY = event.getY(i) / mHeight;
+                    x = transformTouchX(rawX, rawY);
+                    y = transformTouchY(rawX, rawY);
                     p = event.getPressure(i);
                     if (p > 1.0f) p = 1.0f;
                     SDLActivity.onNativeTouch(routedDevId, pointerFingerId, action, x, y, p);
@@ -317,8 +456,10 @@ public class SDLSurface extends SurfaceView implements SurfaceHolder.Callback,
                 case MotionEvent.ACTION_CANCEL:
                     for (i = 0; i < pointerCount; i++) {
                         pointerFingerId = event.getPointerId(i);
-                        x = event.getX(i) / mWidth;
-                        y = event.getY(i) / mHeight;
+                        rawX = event.getX(i) / mWidth;
+                        rawY = event.getY(i) / mHeight;
+                        x = transformTouchX(rawX, rawY);
+                        y = transformTouchY(rawX, rawY);
                         p = event.getPressure(i);
                         if (p > 1.0f) p = 1.0f;
                         SDLActivity.onNativeTouch(routedDevId, pointerFingerId, MotionEvent.ACTION_UP, x, y, p);
