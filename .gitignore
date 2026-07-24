@@ -64,7 +64,6 @@ android/android-sdk*
 # Keep the generated Android runtime asset package in this backup fork.
 android/bin
 android/build
-android/deps-*
 android/libs
 android/obj
 android/.gradle
@@ -94,8 +93,6 @@ lib/shaderc
 .DS_Store
 
 # macOS STK Android build artifacts
-android/deps-arm64-v8a/
-android/deps-armeabi-v7a/
 android/deps-x86/
 android/deps-x86_64/
 android/curl/

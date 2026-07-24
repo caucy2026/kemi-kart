@@ -1,0 +1,15 @@
+# This is a generated file.  Do not edit.
+buildinfo.configure.tool: cmake
+buildinfo.configure.command: /private/tmp/cmake-3.30.0-macos-universal/CMake.app/Contents/bin/cmake
+buildinfo.configure.version: 3.30.0
+buildinfo.configure.args:
+buildinfo.configure.generator: Unix Makefiles
+buildinfo.configure.make: /usr/bin/make
+buildinfo.host.cpu: arm64
+buildinfo.host.os: Darwin
+buildinfo.target.cpu: arm64
+buildinfo.target.os: Linux
+buildinfo.target.flags: UNIX LLVM-CLANG CROSS
+buildinfo.compiler: Clang
+buildinfo.compiler.version: 17.0.2
+buildinfo.sysroot: 
