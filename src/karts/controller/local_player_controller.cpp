@@ -33,7 +33,10 @@
 #include "items/item.hpp"
 #include "items/powerup.hpp"
 #include "karts/abstract_kart.hpp"
+#include "karts/controller/ai_base_controller.hpp"
+#include "karts/controller/battle_ai.hpp"
 #include "karts/controller/player_controller.hpp"
+#include "karts/controller/soccer_ai.hpp"
 #include "karts/controller/skidding_ai.hpp"
 #include "karts/kart_properties.hpp"
 #include "karts/skidding.hpp"
@@ -45,6 +48,7 @@
 #include "network/race_event_manager.hpp"
 #include "network/rewind_manager.hpp"
 #include "race/history.hpp"
+#include "race/race_manager.hpp"
 #include "states_screens/race_gui_base.hpp"
 #include "tracks/drive_graph.hpp"
 #include "tracks/track.hpp"
@@ -58,6 +62,18 @@
 #include "input/sdl_controller.hpp"
 
 #include "LinearMath/btTransform.h"
+
+namespace
+{
+AIBaseController* createAutoDriveAI(AbstractKart* kart)
+{
+    if (RaceManager::get()->isBattleMode())
+        return new BattleAI(kart);
+    if (RaceManager::get()->isSoccerMode())
+        return new SoccerAI(kart);
+    return new SkiddingAI(kart);
+}
+}
 
 /** The constructor for a local player kart, i.e. a player that is playing
  *  on this machine (non-local player would be network clients).
@@ -96,11 +112,13 @@ LocalPlayerController::LocalPlayerController(AbstractKart *kart,
 
     m_is_above_nitro_target = false;
     m_auto_drive_ai = NULL;
+    m_auto_drive_controls = NULL;
     m_auto_drive_active = false;
     m_auto_drive_wanted = UserConfigParams::m_multitouch_auto_drive;
+    m_player_fire = false;
+    m_player_look_back = false;
     m_auto_drive_stuck_time = 0.0f;
     m_auto_drive_last_pos = Vec3(0,0,0);
-    m_auto_drive_blend = 0.0f;
     initParticleEmitter();
 }   // LocalPlayerController
 
@@ -112,6 +130,7 @@ LocalPlayerController::~LocalPlayerController()
     m_wee_sound->deleteSFX();
     if (m_auto_drive_ai)
         delete m_auto_drive_ai;
+    delete m_auto_drive_controls;
 }   // ~LocalPlayerController
 
 //-----------------------------------------------------------------------------
@@ -150,10 +169,13 @@ void LocalPlayerController::reset()
     m_sound_schedule = false;
     m_has_started = false;
     m_auto_drive_active = false;
+    m_player_fire = false;
+    m_player_look_back = false;
     m_auto_drive_stuck_time = 0.0f;
-    m_auto_drive_blend = 0.0f;
     if (m_auto_drive_ai)
         m_auto_drive_ai->reset();
+    if (m_auto_drive_controls)
+        m_auto_drive_controls->reset();
 }   // reset
 
 // ----------------------------------------------------------------------------
@@ -165,6 +187,8 @@ void LocalPlayerController::resetInputState()
 {
     PlayerController::resetInputState();
     m_sound_schedule = false;
+    m_player_fire = false;
+    m_player_look_back = false;
 }   // resetInputState
 
 // ----------------------------------------------------------------------------
@@ -187,6 +211,14 @@ void LocalPlayerController::resetInputState()
 bool LocalPlayerController::action(PlayerAction action, int value,
                                    bool dry_run)
 {
+    if (!dry_run)
+    {
+        if (action == PA_FIRE)
+            m_player_fire = value != 0;
+        else if (action == PA_LOOK_BACK)
+            m_player_look_back = value != 0;
+    }
+
     // Pause race doesn't need to be sent to server
     if (action == PA_PAUSE_RACE)
     {
@@ -288,12 +320,6 @@ void LocalPlayerController::update(int ticks)
         PlayerController::update(ticks);
     }
 
-    const bool player_nitro = m_controls->getNitro();
-    const KartControl::SkidControl player_skid = m_controls->getSkidControl();
-    const bool player_rescue = m_controls->getRescue();
-    const bool player_fire = m_controls->getFire();
-    const bool player_look_back = m_controls->getLookBack();
-
     // ---- Auto-drive: AI takes over when player is not steering ----
     if (m_auto_drive_wanted)
     {
@@ -313,22 +339,17 @@ void LocalPlayerController::update(int ticks)
             // transitions.
             if (!m_auto_drive_active)
             {
-                // ---- OPTIMISATION A: Reuse AI, don't delete/recreate ----
-                // Previously we deleted the old SkiddingAI and created a
-                // fresh one on every re-engagement.  This caused:
-                //   • A frame of zero controls between delete and new
-                //   • Stale computePath() from old constructor
-                // Now we reuse the same instance and just reset it.
                 if (m_auto_drive_ai)
                 {
-                    m_auto_drive_ai->reset();
                     Log::info("LocalPlayerController",
-                        "Auto-drive AI reused (reset) | worldKart=%d",
+                        "Auto-drive AI resumed | worldKart=%d",
                         m_kart->getWorldKartId());
                 }
                 else
                 {
-                    m_auto_drive_ai = new SkiddingAI(m_kart);
+                    m_auto_drive_ai = createAutoDriveAI(m_kart);
+                    m_auto_drive_controls = new KartControl;
+                    m_auto_drive_ai->setControls(m_auto_drive_controls);
                     {
                         const DriveGraph* dg = DriveGraph::get();
                         const int num_nodes = dg ? dg->getNumNodes() : -1;
@@ -345,7 +366,6 @@ void LocalPlayerController::update(int ticks)
                 }
 
                 m_auto_drive_active = true;
-                m_auto_drive_blend  = 0.0f;   // start blend from player→AI
 
                 const DriveGraph* dg = DriveGraph::get();
                 const int nodes = dg ? dg->getNumNodes() : -1;
@@ -364,112 +384,21 @@ void LocalPlayerController::update(int ticks)
             }
             m_auto_drive_ai->update(ticks);
 
-            // DIAGNOSTIC: log AI steering every 60 frames
-            static int s_ai_diag = 0;
-            ++s_ai_diag;
-            const bool diag_now = (s_ai_diag % 60 == 1);
-            if (diag_now && m_auto_drive_ai)
-            {
-                const KartControl* ac = m_auto_drive_ai->getControls();
-                Log::info("LocalPlayerController",
-                    "AI-diag: steer=%.3f accel=%.3f brake=%d speed=%.1f "
-                    "pos=(%.1f,%.1f,%.1f) worldKart=%d",
-                    ac ? ac->getSteer() : -99.f,
-                    ac ? ac->getAccel() : -99.f,
-                    ac ? (int)ac->getBrake() : -1,
-                    m_kart->getSpeed(),
-                    m_kart->getXYZ().getX(),
-                    m_kart->getXYZ().getY(),
-                    m_kart->getXYZ().getZ(),
-                    m_kart->getWorldKartId());
-            }
-
-            // WARNING: AI engaged but outputting nothing for ~3s
-            // This usually means the track's DriveGraph has no valid path
-            // from the kart's current position (off-track spawn, corrupted
-            // navmesh, or incorrect findRoadSector result).
-            static int s_ai_zero_output = 0;
-            if (m_auto_drive_active && m_auto_drive_ai)
-            {
-                const KartControl* ac = m_auto_drive_ai->getControls();
-                if (ac && ac->getSteer() == 0.0f && ac->getAccel() == 0.0f
-                    && !ac->getBrake() && fabsf(m_kart->getSpeed()) < 1.0f)
-                {
-                    s_ai_zero_output++;
-                }
-                else
-                {
-                    s_ai_zero_output = 0;
-                }
-                if (s_ai_zero_output == 180)  // ~3 seconds at 60fps
-                {
-                    const DriveGraph* dg = DriveGraph::get();
-                    Log::warn("LocalPlayerController",
-                        "AI-ZERO: AI engaged but steer=accel=brake=0 for 3s! "
-                        "worldKart=%d track=%s nodes=%d speed=%.1f "
-                        "pos=(%.1f,%.1f,%.1f) — possible DriveGraph issue",
-                        m_kart->getWorldKartId(),
-                        Track::getCurrentTrack()
-                            ? Track::getCurrentTrack()->getIdent().c_str() : "??",
-                        dg ? dg->getNumNodes() : -1,
-                        m_kart->getSpeed(),
-                        m_kart->getXYZ().getX(), m_kart->getXYZ().getY(),
-                        m_kart->getXYZ().getZ());
-                }
-            }
-
-            // Sync AI steering/accel/brake to the kart's actual controls.
-            // SkiddingAI writes to its own m_controls, not the kart's —
-            // we must copy the values for the kart to respond.
-            const KartControl* ai_ctrl = m_auto_drive_ai->getControls();
+            // Apply the isolated AI command buffer exactly. This mirrors the
+            // ownership model used by NetworkAIController.
+            const KartControl* ai_ctrl = m_auto_drive_controls;
             if (ai_ctrl)
             {
-                // ---- OPTIMISATION A: smooth player→AI steer blend ----
-                // Ramp blend from 0→1 over ~0.3 seconds so the wheel
-                // doesn't suddenly snap from the player's last steer
-                // angle to the AI's target.  This makes the handover
-                // feel natural instead of jerky.
-                float dt = stk_config->ticks2Time(ticks);
-                if (m_auto_drive_blend < 1.0f)
-                {
-                    m_auto_drive_blend += dt / 0.3f;  // 0.3s blend time
-                    if (m_auto_drive_blend > 1.0f) m_auto_drive_blend = 1.0f;
-                }
-
-                float player_steer = m_controls->getSteer(); // last player value
-                float ai_steer     = ai_ctrl->getSteer();
-                float blended_steer = player_steer * (1.0f - m_auto_drive_blend)
-                                    + ai_steer     * m_auto_drive_blend;
-                m_controls->setSteer(blended_steer);
-
-                // ---- OPTIMISATION B: curve pre-deceleration ----
-                // If the AI is steering hard (>70%), it's trying to
-                // navigate a curve.  Reduce acceleration so the kart
-                // has time to rotate — prevents full-speed corner entry.
-                float ai_accel = ai_ctrl->getAccel();
-                float abs_steer = fabsf(ai_steer);
-                if      (abs_steer > 0.85f) ai_accel *= 0.25f;  // tight turn
-                else if (abs_steer > 0.60f) ai_accel *= 0.55f;  // moderate
-                else if (abs_steer > 0.35f) ai_accel *= 0.80f;  // gentle
-                m_controls->setAccel(ai_accel);
-
-                if (ai_ctrl->getBrake())
-                    m_controls->setBrake(true);
-                else
-                    m_controls->setBrake(false);
+                m_controls->setSteer(ai_ctrl->getSteer());
+                m_controls->setAccel(ai_ctrl->getAccel());
+                m_controls->setBrake(ai_ctrl->getBrake());
+                m_controls->setNitro(ai_ctrl->getNitro());
+                m_controls->setSkidControl(ai_ctrl->getSkidControl());
+                m_controls->setRescue(ai_ctrl->getRescue());
+                m_controls->setFire(ai_ctrl->getFire() || m_player_fire);
+                m_controls->setLookBack(ai_ctrl->getLookBack() ||
+                                        m_player_look_back);
             }
-
-            // Preserve player's explicit action buttons while AI controls steering.
-            if (player_nitro)
-                m_controls->setNitro(true);
-            if (player_skid != KartControl::SC_NONE)
-                m_controls->setSkidControl(player_skid);
-            if (player_rescue)
-                m_controls->setRescue(true);
-            if (player_fire)
-                m_controls->setFire(true);
-            if (player_look_back)
-                m_controls->setLookBack(true);
 
             // ---- Stuck detection: rescue only if kart truly hasn't moved ----
             float dt = stk_config->ticks2Time(ticks);
@@ -609,6 +538,8 @@ void LocalPlayerController::displayPenaltyWarning()
 void LocalPlayerController::setPosition(int p)
 {
     PlayerController::setPosition(p);
+    if (m_auto_drive_ai)
+        m_auto_drive_ai->setPosition(p);
 
 
     if(m_kart->getPosition()<p)
@@ -634,6 +565,9 @@ void LocalPlayerController::setPosition(int p)
  d*/
 void LocalPlayerController::finishedRace(float time)
 {
+    if (m_auto_drive_ai)
+        m_auto_drive_ai->finishedRace(time);
+
     // This will implicitly trigger setting the first end camera to be active
     if (!GUIEngine::isNoGraphics())
         Camera::changeCamera(m_camera_index, Camera::CM_TYPE_END);
@@ -645,6 +579,8 @@ void LocalPlayerController::finishedRace(float time)
 void LocalPlayerController::handleZipper(bool play_sound)
 {
     PlayerController::handleZipper(play_sound);
+    if (m_auto_drive_ai)
+        m_auto_drive_ai->handleZipper(play_sound);
 
     // Only play a zipper sound if it's not already playing, and
     // if the material has changed (to avoid machine gun effect
@@ -672,6 +608,9 @@ void LocalPlayerController::handleZipper(bool play_sound)
 void LocalPlayerController::collectedItem(const ItemState &item_state,
                                           float old_energy)
 {
+    if (m_auto_drive_ai)
+        m_auto_drive_ai->collectedItem(item_state, old_energy);
+
     if (old_energy < m_kart->getKartProperties()->getNitroMax() &&
         m_kart->getEnergy() == m_kart->getKartProperties()->getNitroMax())
     {
@@ -700,6 +639,22 @@ void LocalPlayerController::collectedItem(const ItemState &item_state,
         }
     }
 }   // collectedItem
+
+//-----------------------------------------------------------------------------
+void LocalPlayerController::newLap(int lap)
+{
+    PlayerController::newLap(lap);
+    if (m_auto_drive_ai)
+        m_auto_drive_ai->newLap(lap);
+}   // newLap
+
+//-----------------------------------------------------------------------------
+void LocalPlayerController::skidBonusTriggered()
+{
+    PlayerController::skidBonusTriggered();
+    if (m_auto_drive_ai)
+        m_auto_drive_ai->skidBonusTriggered();
+}   // skidBonusTriggered
 
 //-----------------------------------------------------------------------------
 /** If the nitro level has gone under the nitro goal, play a bad effect sound
@@ -775,10 +730,14 @@ void LocalPlayerController::crashed(const AbstractKart* k) {
     doCrashHaptics();
 
     PlayerController::crashed(k);
+    if (m_auto_drive_ai)
+        m_auto_drive_ai->crashed(k);
 }
 
 void LocalPlayerController::crashed(const Material *m) {
     doCrashHaptics();
 
     PlayerController::crashed(m);
+    if (m_auto_drive_ai)
+        m_auto_drive_ai->crashed(m);
 }

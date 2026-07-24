@@ -329,15 +329,41 @@ void SkiddingAI::update(int ticks)
 
     if (!m_enabled_network_ai)
     {
-        int num_ai = m_world->getNumKarts() - RaceManager::get()->getNumPlayers();
-        int position_among_ai = m_kart->getPosition() - m_num_players_ahead;
-        // Karts with boosted AI get a better speed cap value
-        if (m_kart->getBoostAI())
-            position_among_ai = 1;
-        float speed_cap = m_ai_properties->getSpeedCap(m_distance_to_player,
-            position_among_ai, num_ai);
-        m_kart->setSlowdown(MaxSpeed::MS_DECREASE_AI,
-            speed_cap, /*fade_in_time*/0);
+        // This speed cap logic is designed for native NPC AIs. When SkiddingAI
+        // is embedded inside a LocalPlayerController (auto-drive), the
+        // ai-position semantics are different and can produce invalid caps.
+        // Keep player-owned auto-drive out of NPC rubber-banding.
+        if (m_kart->getController() && m_kart->getController()->isPlayerController())
+        {
+            m_kart->setSlowdown(MaxSpeed::MS_DECREASE_AI,
+                1.0f, /*fade_in_time*/0);
+        }
+        else
+        {
+            int num_ai = m_world->getNumKarts() - RaceManager::get()->getNumPlayers();
+            if (num_ai <= 0)
+                num_ai = 1;
+
+            int position_among_ai = m_kart->getPosition() - m_num_players_ahead;
+            // Karts with boosted AI get a better speed cap value
+            if (m_kart->getBoostAI())
+                position_among_ai = 1;
+
+            if (position_among_ai < 1)
+                position_among_ai = 1;
+            else if (position_among_ai > num_ai)
+                position_among_ai = num_ai;
+
+            float speed_cap = m_ai_properties->getSpeedCap(m_distance_to_player,
+                position_among_ai, num_ai);
+            // Safety guard: never let AI slowdown collapse to near-zero due to
+            // unexpected interpolation inputs.
+            if (speed_cap < 0.1f)
+                speed_cap = 0.1f;
+
+            m_kart->setSlowdown(MaxSpeed::MS_DECREASE_AI,
+                speed_cap, /*fade_in_time*/0);
+        }
     }
 
     //Detect if we are going to crash with the track and/or kart

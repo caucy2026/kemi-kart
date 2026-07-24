@@ -1,5 +1,51 @@
 # STK 双屏异显 — 版本记录
 
+## v1.6.9 (2026-07-24) — 自动驾驶走停根因修复 + 临时诊断回收
+
+### 结论
+
+- 双屏自动驾驶的周期性走停根因已定位并修复：玩家车复用 NPC AI 橡皮筋限速语义时，`MS_DECREASE_AI` 可能被异常压低，物理层随后按 `max_speed` 裁剪速度导致瞬时降速。
+- 修复后，玩家包装 AI 不再走 NPC 橡皮筋限速分支；NPC 分支保留并加边界保护。
+- 调试阶段加入的临时日志已全部移除，恢复干净运行日志。
+
+### 关键改动
+
+1. `src/karts/controller/skidding_ai.cpp`
+  - 当 `SkiddingAI` 运行在玩家控制器（auto-drive）下：`MS_DECREASE_AI` 固定为 `1.0f`，不参与 NPC rubber-banding。
+  - 原生 NPC 路径保留，并加入保护：
+    - `num_ai` 下限保护（至少 1）
+    - `position_among_ai` 钳制到 `[1, num_ai]`
+    - `speed_cap` 下限钳制到 `0.1f`
+
+2. `src/karts/controller/local_player_controller.cpp/hpp`
+  - 保留 auto-drive 隔离控制缓冲与生命周期转发。
+  - 回收临时诊断字段与日志（`AI-SPEED-DROP` / `AI-diag` / `AI-ZERO`）。
+
+3. `src/karts/max_speed.cpp` 与 `src/physics/btKart.cpp`
+  - 回收临时诊断日志（`ZERO-MAX` / `SPEED-CLAMP`），不改功能路径。
+
+### 验证
+
+```text
+BUILD SUCCESSFUL
+```
+
+- 黑森林双屏自动驾驶复测中，`ZERO-MAX` 与 `SPEED-CLAMP` 命中为 0。
+- 低速样本比例较修复前显著下降（走停主路径已切断）。
+- 未观察到新增 Java / native 崩溃签名。
+
+### 需求状态
+
+- “自动 AI 时方向盘持续 3 秒触发 AI 基础速度 +5%”已完成方案分析，按当前决策暂不实现。
+
+### 改动文件
+
+- `src/karts/controller/local_player_controller.cpp`
+- `src/karts/controller/local_player_controller.hpp`
+- `src/karts/controller/skidding_ai.cpp`
+
+---
+
 ## v1.6.8 (2026-07-23) — 天空像素提前返回 + FPS 开关统一联动
 
 ### 结论

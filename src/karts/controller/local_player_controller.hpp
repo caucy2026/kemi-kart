@@ -26,10 +26,11 @@
 #include <memory>
 
 class AbstractKart;
+class AIBaseController;
+class KartControl;
 class SFXBase;
 class SFXBuffer;
 class btTransform;
-class SkiddingAI;
 
 #ifndef SERVER_ONLY
 class ParticleEmitter;
@@ -64,17 +65,20 @@ private:
     HandicapLevel m_handicap;
 
     /** AI controller for auto-drive mode. Created lazily when first needed. */
-    SkiddingAI* m_auto_drive_ai;
+    AIBaseController* m_auto_drive_ai;
+    /** Isolated output buffer for the embedded AI controller. */
+    KartControl* m_auto_drive_controls;
     /** Whether auto-drive is currently active (AI is controlling the kart). */
     bool        m_auto_drive_active;
     /** Per-player auto-drive toggle (independent per screen in dual mode). */
     bool        m_auto_drive_wanted;
+    /** Player action buttons that remain available while auto-drive is active. */
+    bool        m_player_fire;
+    bool        m_player_look_back;
     /** Accumulated time the kart has been nearly stationary under auto-drive. */
     float       m_auto_drive_stuck_time;
     /** Last position for stuck detection (checks actual movement, not speed). */
     Vec3        m_auto_drive_last_pos;
-    /** Blend timer for smooth player→AI steer transition (0=player, 1=AI). */
-    float       m_auto_drive_blend;
 
     SFXBase     *m_wee_sound;
     SFXBuffer   *m_bzzt_sound;
@@ -103,6 +107,8 @@ public:
     virtual void handleZipper      (bool play_sound) OVERRIDE;
     void         collectedItem     (const ItemState &item,
                                     float previous_energy=0) OVERRIDE;
+    virtual void newLap            (int lap) OVERRIDE;
+    virtual void skidBonusTriggered() OVERRIDE;
     virtual void setPosition       (int p) OVERRIDE;
     virtual void reset             () OVERRIDE;
     virtual void finishedRace      (float time) OVERRIDE;
