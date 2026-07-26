@@ -545,7 +545,7 @@ namespace UserConfigParams
             "Enable multitouch race GUI"));
 
     PARAM_PREFIX BoolUserConfigParam         m_multitouch_inverted
-            PARAM_DEFAULT( BoolUserConfigParam(false, "multitouch_inverted",
+            PARAM_DEFAULT( BoolUserConfigParam(true, "multitouch_inverted",
             &m_multitouch_group,
             "Draw steering wheel on right side.") );
 
