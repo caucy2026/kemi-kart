@@ -1,59 +1,72 @@
 # kemi-cart 无脑编译指南
 
+## 一键克隆
+
+```bash
+# 代码 + 资源全部下载
+git clone --recursive https://github.com/caucy2026/kemi-kart.git
+
+# 如果忘了 --recursive，补拉资源:
+git submodule update --init
+```
+
+## 仓库结构
+
+| 仓库 | 内容 | 大小 |
+|------|------|------|
+| `caucy2026/kemi-kart` | C++ 引擎 + Android 构建 | ~600MB |
+| `minghuadev/stk-assets` (submodule) | 赛道/卡丁车/贴图/音效 | 724MB |
+
 ## 环境要求
 
 | 工具 | 版本 | 说明 |
 |------|------|------|
-| Android NDK | **26.x** (必须) | NDK 27/28 有 API 兼容问题 |
+| Android NDK | 26.x | NDK 27+ 需 patch SDL2 |
 | Android SDK | 任意 | build-tools 30+ |
-| Java | JDK 17 | |
 | macOS / Linux | | |
 
-## 一键编译
+## 编译
 
 ```bash
-# 1. 配置 NDK 和 SDK 路径
 cd android
-ln -sfn /path/to/your/android-ndk/r26x android-ndk/28.1.13356709
-ln -sfn /path/to/your/android-sdk android-sdk
 
-# 2. 编译 (debug)
+# 配置 NDK/SDK 路径
+ln -sfn /path/to/ndk-r26x android-ndk/28.1.13356709
+ln -sfn /path/to/android-sdk android-sdk
+
+# debug 构建
 bash make.sh
 
-# 3. 编译 (release)
+# release 构建
 STK_KEYSTORE=/path/to/keystore \
-STK_STOREPASS=yourpass \
-STK_ALIAS=youralias \
-PROJECT_VERSION="1.0.0" \
-PROJECT_CODE="1" \
-BUILD_TYPE=release \
-bash make.sh
+STK_STOREPASS=xxx \
+STK_ALIAS=xxx \
+PROJECT_VERSION="1.0.0" PROJECT_CODE="1" \
+BUILD_TYPE=release bash make.sh
 ```
 
-## 产出
+## 安装测试
 
-- `android/build/outputs/apk/debug/` — debug APK
-- `android/build/outputs/apk/release/` — release APK
-- `bin/kemi-cart.apk` — 预编译版本 (157MB, arm64-v8a)
+```bash
+adb install -r android/build/outputs/apk/debug/app-debug.apk
+adb shell am start -n org.supertuxkart.stk/.SuperTuxKartActivity
 
-## 目录说明
+# 双屏截图
+adb shell screencap -d 0 -p /sdcard/d0.png
+adb shell screencap -d 2 -p /sdcard/d2.png
+```
+
+## 目录
 
 ```
 kemi-cart/
-├── src/            C++ 游戏引擎源码
-├── lib/            第三方库 (bullet, irrlicht, sdl2...)
+├── src/            C++ 引擎
+├── lib/            第三方库 (bullet/irrlicht/sdl2)
 ├── data/           游戏配置
 ├── android/        Android 构建系统
 │   ├── make.sh         主构建脚本
-│   ├── Android.mk      NDK 编译配置
-│   ├── deps-arm64-v8a/ 预编译依赖
-│   └── assets/data/    游戏素材
-├── stk-assets/ →   → 指向 ../stk-assets 素材库
-└── bin/            预编译 APK
+│   ├── deps.tar.xz     预编译依赖 (14MB)
+│   └── assets/data/    构建生成的素材
+├── stk-assets/     → submodule: 游戏资源
+└── bin/            预编译 APK (不上传 git)
 ```
-
-## 已知问题
-
-- NDK 27+ 需要 patch: `lib/sdl2/src/sensor/android/SDL_androidsensor.c` 中的 `ALooper_pollAll` → `ALooper_pollOnce`
-- 首次编译需要 stk-assets 素材库在 `../stk-assets/`
-- 首次编译耗时约 10-30 分钟（取决于机器）
