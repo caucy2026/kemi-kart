@@ -15,14 +15,15 @@ git submodule update --init
 | 仓库 | 内容 | 大小 |
 |------|------|------|
 | `caucy2026/kemi-kart` | C++ 引擎 + Android 构建 | ~600MB |
-| `minghuadev/stk-assets` (submodule) | 赛道/卡丁车/贴图/音效 | 724MB |
+| `caucy2026/stk-assets` (submodule) | 赛道/卡丁车/贴图/音效 | 724MB |
 
 ## 环境要求
 
 | 工具 | 版本 | 说明 |
 |------|------|------|
-| Android NDK | 26.x | NDK 27+ 需 patch SDL2 |
-| Android SDK | 任意 | build-tools 30+ |
+| Android NDK | 26.1.10909125 | 已验证版本 |
+| Android SDK | 34 | minSdk 24，targetSdk 34 |
+| ImageMagick | 任意 | 用于生成 Android 图标 |
 | macOS / Linux | | |
 
 ## 编译
@@ -30,19 +31,26 @@ git submodule update --init
 ```bash
 cd android
 
-# 配置 NDK/SDK 路径
-ln -sfn /path/to/ndk-r26x android-ndk/28.1.13356709
-ln -sfn /path/to/android-sdk android-sdk
+# 配置 SDK 路径；NDK 应安装在 SDK 的 ndk/26.1.10909125 下
+export ANDROID_SDK_ROOT=/path/to/android-sdk
 
 # debug 构建
-bash make.sh
+STK_MIN_ANDROID_SDK=24 STK_TARGET_ANDROID_SDK=34 \
+STK_NDK_VERSION=26.1.10909125 \
+NDK_PATH="$ANDROID_SDK_ROOT/ndk" SDK_PATH="$ANDROID_SDK_ROOT" \
+COMPILE_ARCH=aarch64 bash make.sh
 
 # release 构建
 STK_KEYSTORE=/path/to/keystore \
 STK_STOREPASS=xxx \
 STK_ALIAS=xxx \
-PROJECT_VERSION="1.0.0" PROJECT_CODE="1" \
-BUILD_TYPE=release bash make.sh
+PROJECT_VERSION="1.6" PROJECT_CODE="2" \
+STK_MIN_ANDROID_SDK=24 STK_TARGET_ANDROID_SDK=34 \
+STK_NDK_VERSION=26.1.10909125 \
+NDK_PATH="$ANDROID_SDK_ROOT/ndk" SDK_PATH="$ANDROID_SDK_ROOT" \
+COMPILE_ARCH=aarch64 BUILD_TYPE=release bash make.sh
+
+# APK 输出: android/build/outputs/apk/release/android-release.apk
 ```
 
 ## 安装测试
