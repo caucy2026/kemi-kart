@@ -365,7 +365,7 @@ AI 只走直线，最终撞墙卡死。多次尝试放大 steer、限速等手�
 
 ### 核心发现：m_controls 是共享指针
 
-`Controller::Controller()`（[controller.cpp](/Users/newlink/kemi/stk-code/src/karts/controller/controller.cpp)）：
+`Controller::Controller()`（[controller.cpp](/Volumes/ORICO/kemi/kemi-cart/src/karts/controller/controller.cpp)）：
 
 ```cpp
 Controller::Controller(AbstractKart *kart) {

@@ -3,7 +3,7 @@
 ## 编译命令
 
 ```bash
-cd /Users/newlink/kemi/stk-code/android
+cd /Volumes/ORICO/kemi/kemi-cart/android
 /Users/newlink/android-sdk/ndk/26.1.10909125/ndk-build \
   NDK_PROJECT_PATH=. \
   APP_BUILD_SCRIPT=Android.mk \

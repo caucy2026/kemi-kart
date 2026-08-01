@@ -1,5 +1,12 @@
 # kemi-cart 无脑编译指南
 
+## 当前维护目录
+
+- 项目根目录: `/Volumes/ORICO/kemi/kemi-cart`
+- 资源 submodule: `stk-assets/` → `caucy2026/stk-assets`
+- Android 构建: `android/`
+
+
 ## 一键克隆
 
 ```bash

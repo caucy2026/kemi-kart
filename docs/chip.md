@@ -741,7 +741,7 @@ geomLayerTransform (ROT_180) (ROTATE TRANSLATE)
 
 #### 2.7.9 最终验证与恢复 SOP
 
-在 `/Users/newlink/kemi/stk-code/android` 构建并安装：
+在 `/Volumes/ORICO/kemi/kemi-cart/android` 构建并安装：
 
 ```bash
 ./gradlew assembleRelease
