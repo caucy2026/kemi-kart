@@ -15,6 +15,17 @@
 
 extern "C" const char* Android_Custom_Vulkan_Driver_In_Use();
 
+// Stub for devices without the custom mesa vulkan driver (e.g. Mali RK3566).
+// Android_Custom_Vulkan_Driver_In_Use() is normally provided by mesa's
+// libvulkan_freedreno.so (loaded at runtime via libadrenotools). When that
+// driver is absent this returns NULL, meaning "no custom driver in use".
+#if defined(__ANDROID__) && defined(__aarch64__)
+extern "C" const char* Android_Custom_Vulkan_Driver_In_Use()
+{
+    return NULL;
+}
+#endif
+
 namespace GE
 {
 namespace GEVulkanFeatures
