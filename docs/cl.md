@@ -1,5 +1,56 @@
 # STK 双屏异显 — 版本记录
 
+## v1.6.13 (2026-08-01) — Release 构建图标/名称定制修复 + 文档目录合并
+
+### 背景
+
+- 用户反馈：DEBUG 版本 APP 名称和图标都定制过，但换成 release 构建后**全部变回默认**（名称 "SuperTuxKart"、图标变默认）
+- 排查更新记录（v1.6.2）确认：定制名称为 `双屏3D卡丁车`、图标为 STK 徽标
+
+### 问题一：release 构建 APP 名称变回默认
+
+**根因**：`android/make.sh` **每次构建都会删除并重新生成 `res/values/strings.xml`**（`rm -rf res/values*`），`app_name` 直接取 `$APP_NAME` 变量。而 `APP_NAME_RELEASE="SuperTuxKart"` 从未改过，release 构建后定制名被覆盖回默认。手动改 `strings.xml` 无效（构建必被覆盖）。
+
+**修复**：
+- `make.sh` 中 `APP_NAME_RELEASE` 和 `APP_NAME_DEBUG` 改为 `双屏3D卡丁车`
+- 这是唯一正确的持久化方式——定制名必须写在 make.sh 变量里
+- 验证：`aapt dump badging` → `application-label:'双屏3D卡丁车'`
+- 提交：ORICO `809499e`，stk-code 同步
+
+### 问题二：release 构建桌面图标不更新（折腾最久）
+
+**现象**：重装 release 后桌面图标仍显示"深蓝圆形 + 中央缩小图标"，不是完整 STK 徽标。
+
+**排查过程**（多个错误方向）：
+1. 怀疑 launcher 缓存 `app_icons.db`（v1.6.2 已知坑）→ 执行 `DELETE FROM icons` + `pm clear launcher3` 仍不更新
+2. 对比 APK 内图标 hash 与源文件 → 一致（0ab361），确认 APK 图标资源本身正确
+3. 提取缓存 BLOB 分析 → 缓存图标是"深蓝背景 + 红色图案"，与 APK 内完整图标（红色卡丁车）不一致
+
+**真正根因**：**Adaptive Icon 劫持渲染**！
+- `make.sh` 每次构建都会**重新生成 `res/drawable-anydpi-v26/icon.xml`**（adaptive-icon 定义：`icon_bg` + `icon_fg`）
+- Android 8+ 设备检测到 `icon.xml` 就**优先用 adaptive icon 渲染**，忽略完整的 `drawable/icon.png`
+- 组合结果 = 残留深蓝 `icon_bg`(0,0,32) + 红色 `icon_fg`(0ab361) 被**缩小**放在中央 → 桌面显示"深蓝圆形 + 缩小图标"
+- 这正是 cl.md v1.6.2 记录的"全 density STK 企鹅 + **删除 icon.xml**"——当时 DEBUG 删了 icon.xml 所以显示完整图标，而 release 构建时 make.sh 又把 icon.xml 生成了
+
+**修复**：
+- `make.sh` 改为不生成 `icon.xml`，并清理残留 `icon_bg.png`/`icon_fg.png`
+- 重新构建 → APK 内无 anydpi adaptive icon，只有完整 `drawable/icon.png` 各 density
+- 清缓存：`adb root` → `sqlite3 app_icons.db 'DELETE FROM icons'` + `pm clear launcher3` + 重启设备
+- 验证：缓存图标从 **6422B（adaptive 组合）→ ~11920B（完整图标）**，桌面截图确认显示完整 STK 徽标
+- 提交：ORICO `d874598` + `11b2fcc`，stk-code 同步
+
+### 关键经验（三层都要查）
+
+1. **APK 图标源文件是否正确**（`drawable/icon.png` hash）
+2. **是否有 adaptive icon（icon.xml）劫持渲染** ← 本次根因，make.sh 会复活它
+3. **launcher 缓存 `app_icons.db`**（需 root：`DELETE FROM icons` + `pm clear launcher3`；设备支持 `adb root`，`sqlite3` 在 `/system/bin/sqlite3`）
+
+### 文档目录合并
+
+- 项目根目录有 16 个 untracked `.md`，其中 11 个与 `docs/` 下已跟踪文件**内容完全相同**（`PROJECT.md`、`chip.md`、`cl.md`、`dual-screen-*`、`dual_cursor_plan.md`、`dual_screen_kart_selection.md`、`requirements.md`、`sky-early-return.md`、`stk-android-build.md`）
+- 删除根目录 11 个重复副本，统一保留 `docs/` 版本（git 已跟踪）
+- 根目录保留 STK 官方标准文档：`BUILD.md`、`README.md`（已跟踪）+ `CHANGELOG.md`、`CLAUDE.md`、`INSTALL.md`、`NETWORKING.md`、`OPUS.md`（独有，docs 无对应）
+
 ## v1.6.12 (2026-07-25) — 双屏平台 3D 开源项目推荐
 
 - 新增 [dual-screen-candidates.md](./dual-screen-candidates.md)：筛选 5 个可移植到 RK356x 双屏平台的 3D 开源项目

@@ -146,3 +146,6 @@ android/.gradle/
 android/*.apk
 .backup/
 bin/
+
+# 独立的 Adreno 驱动库（Mali 设备用不到，未集成到构建）
+lib/libadrenotools/
