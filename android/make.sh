@@ -29,7 +29,7 @@ if [ -z "$STK_NDK_VERSION" ]; then
     export STK_NDK_VERSION="28.1.13356709"
 fi
 
-export APP_NAME_RELEASE="SuperTuxKart"
+export APP_NAME_RELEASE="双屏3D卡丁车"
 export PACKAGE_NAME_RELEASE="org.supertuxkart.stk"
 export PACKAGE_CLASS_NAME_RELEASE="org/supertuxkart/stk"
 export APP_DIR_NAME_RELEASE="supertuxkart"
@@ -45,7 +45,7 @@ export APP_ICON_BETA="$DIRNAME/icon-dbg.png"
 export APP_ICON_ADAPTIVE_BG_BETA="$DIRNAME/icon_adaptive_bg-dbg.png"
 export APP_ICON_ADAPTIVE_FG_BETA="$DIRNAME/icon_adaptive_fg-dbg.png"
 
-export APP_NAME_DEBUG="SuperTuxKart Debug"
+export APP_NAME_DEBUG="双屏3D卡丁车"
 export PACKAGE_NAME_DEBUG="org.supertuxkart.stk_dbg"
 export PACKAGE_CLASS_NAME_DEBUG="org/supertuxkart/stk_dbg"
 export APP_DIR_NAME_DEBUG="supertuxkart-dbg"
