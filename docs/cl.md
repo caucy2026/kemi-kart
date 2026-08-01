@@ -1,5 +1,63 @@
 # STK 双屏异显 — 版本记录
 
+## v1.6.14 (2026-08-01) — Release 编译完整流程 + KEMI 开机动画排查记录
+
+### Release 编译完整流程（已验证）
+
+```bash
+cd /Volumes/ORICO/kemi/kemi-cart/android
+STK_MIN_ANDROID_SDK=24 STK_TARGET_ANDROID_SDK=34 \
+STK_NDK_VERSION=26.1.10909125 \
+NDK_PATH=/Users/newlink/android-sdk/ndk \
+SDK_PATH=/Users/newlink/android-sdk \
+COMPILE_ARCH=aarch64 \
+BUILD_TYPE=release \
+PROJECT_VERSION=1.6 PROJECT_CODE=2 \
+STK_KEYSTORE=/Users/newlink/.android/debug.keystore \
+STK_STOREPASS=android STK_ALIAS=androiddebugkey \
+bash make.sh
+```
+
+**产物与部署**：
+```bash
+# 产物
+cp build/outputs/apk/release/android-release.apk /Volumes/ORICO/kemi/kemi-cart/bin/kemii-carts.apk
+
+# 部署（覆盖安装）
+adb -s 192.168.3.46:5555 install -r build/outputs/apk/release/android-release.apk
+
+# 清 launcher 图标缓存（RK356x 必须，否则桌面图标不刷新）
+adb -s 192.168.3.46:5555 root   # 设备支持 adb root
+adb -s 192.168.3.46:5555 shell "sqlite3 /data/data/com.android.launcher3/databases/app_icons.db 'DELETE FROM icons;'"
+adb -s 192.168.3.46:5555 shell pm clear com.android.launcher3
+# 重启设备让 launcher 完全重建
+adb -s 192.168.3.46:5555 reboot
+```
+
+**构建前注意**（make.sh 每次构建会做的事）：
+- 重新生成 `res/values/strings.xml`（app_name 取 `$APP_NAME`，release 现为 `双屏3D卡丁车`）
+- 重新生成 `res/drawable-anydpi-v26/icon.xml`（adaptive icon）→ **当前 make.sh 已改为不生成**，并清理残留 icon_bg/icon_fg
+- 复制 `icon.png` 到各 density（48/72/96/144/192/512）
+
+### KEMI 副屏开机动画排查记录（未改动代码，纯调查）
+
+**现象**：用户反馈"副屏前面 3 秒的 KEMI 开机动画没了"（深蓝背景 + 白色脉动圆圈 + 蓝色 KEMI 文字的 LoadingCircleView）。
+
+**调查结论**（Java 层代码零差异）：
+- `LoadingCircleView.java` / `DualScreenActivity.java` / `DualScreenPresentation.java`：ORICO、stk-code、7-21 备份 **完全一致**
+- `nativeIsD2Ready` JNI 字节码：新旧 libmain.so 逻辑相同（`g_secondReady && surface != NULL`）
+- 两个 APK（7-30 旧版 vs 新版）`classes.dex` 中 LoadingCircleView/DualScreenActivity 类与方法一致
+- 日志确认：新旧都走 `DualScreenActivity` 路径，`onCreate` 后约 3 秒 `hiding loading view`
+
+**实测对比**：
+- **7-30 旧 APK**（用户认可）：副屏启动初期截图确认显示 **KEMI LOGO**（白圆圈 + KEMI 文字）
+- **当前新 release APK**：同样截图抓到了 KEMI LOGO 画面（颜色数据与旧版高度相似：白1.2% 蓝14.3% 深86.7% vs 白1.7% 蓝5.1% 深81.4%）
+
+**当前疑点（未下结论，待用户确认后再动代码）**：
+- 新 APK 的 `libmain.so` 更大（29.9MB vs 旧 22.5MB），且 SDL2 链接方式不同（旧版有独立 libSDL2.so，新版无）→ **native 初始化时序可能变化** → `nativeIsD2Ready()` 更早返回 true → LoadingCircleView 可能只显示极短时间（<100ms），肉眼难见
+- 下一步（用户确认后）：对比新旧 libmain.so 的 `dualScreenIsReady` / EGL surface 创建时序，或加日志确认 loading view 实际可见时长
+- **未做任何代码改动**（用户要求先讨论再动）
+
 ## v1.6.13 (2026-08-01) — Release 构建图标/名称定制修复 + 文档目录合并
 
 ### 背景
@@ -39,11 +97,18 @@
 - 验证：缓存图标从 **6422B（adaptive 组合）→ ~11920B（完整图标）**，桌面截图确认显示完整 STK 徽标
 - 提交：ORICO `d874598` + `11b2fcc`，stk-code 同步
 
+**⚠️ 过程反复教训（重要）**：
+- 期间曾**错误回滚**（`a06fadb` 恢复 adaptive icon）→ 桌面又变回"黑红图片"（深蓝/黑背景 + 缩小红色图标）
+- 用户明确指出"黑红图片错了"、提示查看一小时前记录
+- 最终**撤销回滚**（`a8c22d2` re-remove adaptive icon）→ 用户确认**图标显示正确** ✅
+- **结论：RK356x launcher 上 adaptive icon 组合（深蓝 bg + 缩小 fg）会被用户视为"黑红错误图标"；删除 icon.xml 让桌面直接显示完整 icon.png 才是正确方案**
+
 ### 关键经验（三层都要查）
 
 1. **APK 图标源文件是否正确**（`drawable/icon.png` hash）
 2. **是否有 adaptive icon（icon.xml）劫持渲染** ← 本次根因，make.sh 会复活它
 3. **launcher 缓存 `app_icons.db`**（需 root：`DELETE FROM icons` + `pm clear launcher3`；设备支持 `adb root`，`sqlite3` 在 `/system/bin/sqlite3`）
+4. **改图标后必须现场截图给用户确认**，不要凭字节码/颜色分析下结论——同一份代码新旧 APK 表现可能不同（native 时序），一切以设备实际显示为准
 
 ### 文档目录合并
 
