@@ -369,14 +369,16 @@ create_translation()
 
 find "$DIRNAME/assets/data/po" -type f -name '*.po' | while read -r f; do create_translation "$f"; done
 
-ADAPTIVE_ICON_FILE="$DIRNAME/res/drawable-anydpi-v26/icon.xml"
-
-echo "<?xml version=\"1.0\" encoding=\"utf-8\"?>"                      >  "$ADAPTIVE_ICON_FILE"
-echo "<adaptive-icon"                                                  >> "$ADAPTIVE_ICON_FILE"
-echo "  xmlns:android=\"http://schemas.android.com/apk/res/android\">" >> "$ADAPTIVE_ICON_FILE"
-echo "    <background android:drawable=\"@drawable/icon_bg\" />"       >> "$ADAPTIVE_ICON_FILE"
-echo "    <foreground android:drawable=\"@drawable/icon_fg\" />"       >> "$ADAPTIVE_ICON_FILE"
-echo "</adaptive-icon>"                                                >> "$ADAPTIVE_ICON_FILE"
+# 不生成 adaptive icon (icon.xml)：
+# RK356x launcher 会优先使用 adaptive icon 渲染，导致桌面显示为
+# "深蓝圆形 + 缩小图标"，而不是完整的 icon.png。
+# 与 cl.md v1.6.2 "全 density STK 企鹅 + 删除 icon.xml" 一致，
+# 删除 icon.xml 后桌面直接显示完整 icon.png (STK 卡丁车徽标)。
+# 删除可能残留的旧 icon.xml（防止上次构建遗留）
+rm -f "$DIRNAME/res/drawable-anydpi-v26/icon.xml"
+# 同时清理残留的 adaptive icon 背景/前景（无 icon.xml 引用即无效，删除保持干净）
+rm -f "$DIRNAME/res/drawable-anydpi-v26/icon_bg.png"
+rm -f "$DIRNAME/res/drawable-anydpi-v26/icon_fg.png"
 
 sed -i "s/package org.supertuxkart.*/package $PACKAGE_NAME;/g" \
        "$DIRNAME/src/main/java/STKEditText.java"
