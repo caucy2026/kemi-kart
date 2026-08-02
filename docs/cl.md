@@ -1,5 +1,30 @@
 # STK 双屏异显 — 版本记录
 
+## v1.6.15 (2026-08-02) — 副屏加载动画稳态化 + 变更记录整理
+
+### 本次改动记录
+
+- **背景**：用户反馈副屏启动时 KEMI LOGO/加载动画的可见性不稳定，表现为“像是短暂消失/被提前切走”。
+- **改动目标**：把副屏启动的加载展示逻辑改成“先显示、再等待 native ready、最后在满足最短时长后再收起”，避免视觉上出现闪退或过早隐藏。
+
+### 代码层改动摘要
+
+- `SuperTuxKartActivity.java`：主屏启动时先触发副屏加载入口，确保 D2 的加载视图优先建立。
+- `DualScreenActivity.java`：将 D2 的加载界面改为独立 `Dialog` 覆层，并在 `Dialog` 中承载 `LoadingCircleView`；同时增加最短展示时长 `3000ms`，只有在 native ready 且时长满足条件后才关闭。
+- `DualScreenPresentation.java`：保留同样的最小展示时长逻辑，并把 hide 逻辑收敛为“等待 native ready + 等待超时后再隐藏”。
+- `LoadingCircleView.java`：继续维持白色圆圈 + 蓝色 `KEMI` 脉动动画，作为副屏启动时的视觉占位。
+- `SDLActivity.java` / `SDLSurface.java`：把副屏 Surface 的挂载与 native ready 通知链路串联起来，保证加载界面和实际渲染层的时序更顺。
+- `.gitignore`：补充 `android/.gradle-user-home/`，避免本地 Gradle 缓存污染项目目录。
+
+### 变更思路
+
+这次不是“改资源文件”，而是把副屏启动流程改成“先展示品牌加载界面，再等 native 准备完成，最后再切到正式渲染”。这属于启动时序与视觉稳定性问题，而不是单纯的图片替换问题。
+
+### 后续建议
+
+- 继续用实机截图 + 日志确认副屏启动初期是否稳定显示 KEMI 加载动画。
+- 若后续要继续优化，可再把最短展示时长做成可配置参数，而不是写死。
+
 ## v1.6.14 (2026-08-01) — Release 编译完整流程 + KEMI 开机动画排查记录
 
 ### Release 编译完整流程（已验证）

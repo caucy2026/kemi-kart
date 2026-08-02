@@ -510,7 +510,37 @@ if (g_dual_screen_mode) {
 
 ### 9.3 加载动画
 
-D2 在 EGL surface 就绪前有 ~6 秒黑屏。方案：Java `LoadingCircleView`（Canvas 绘制白色圆圈 + 品牌文字），JNI 轮询 native ready 后立即隐藏。
+D2 在 EGL surface 就绪前有 ~6 秒黑屏。当前实现方案把“品牌加载界面”从单纯的立即隐藏，改成了“先展示、再等待 native ready、最后再切到正式渲染”的稳态流程。
+
+#### 9.3.1 本次改动逻辑（2026-08-02）
+
+1. **主屏先发起副屏加载入口**
+   - `SuperTuxKartActivity` 在主屏创建阶段先调用 `launchDualScreenLoading()`，确保副屏加载流程尽早起跑。
+   - 这样做的目的不是直接显示游戏画面，而是先让 D2 的品牌动画稳定出现。
+
+2. **D2 统一使用全屏加载层**
+   - `DualScreenActivity` 里用 `Dialog + LoadingCircleView` 作为覆盖层，保证副屏在一开始就有稳定的视觉占位。
+   - `SDLSurface` 被挂到背景层，LoadingView 在前层，避免画面一开始就空白或闪一下。
+
+3. **最小展示时长兜底**
+   - 增加 `MIN_LOADING_DURATION_MS = 3000`。
+   - 即使 native 已经 ready，加载界面也至少保持 3 秒，避免用户感觉“Logo 瞬间没了”。
+   - 这个时长是为了保证视觉连续性，而不是为了拖延真实进入游戏。
+
+4. **native ready 与 UI 收起解耦**
+   - `DualScreenPresentation` / `DualScreenActivity` 都会轮询 `nativeIsD2Ready()`。
+   - 只有当“native ready”且“已满足最短展示时长”两个条件同时满足时，才收起加载界面。
+   - 这样可避免出现“native 已经准备好，但 UI 还没完成视觉过渡”的不连续感。
+
+5. **资源与生命周期整理**
+   - 加载层、Surface、生命周期清理都放在同一套流程里，避免外部 Activity 退出时留下残留窗口或空白层。
+   - 对应的清理逻辑包含 `onDestroy()` 和异常退出场景。
+
+#### 9.3.2 该方案的价值
+
+- 避免副屏启动初期出现“黑屏 / 瞬间空白 / 过快切换”的视觉抖动。
+- 把显示逻辑从“立即隐藏”改成“稳定展示”，更适合品牌启动和双屏体验。
+- 这种思路对后续继续接入更复杂的副屏提示、等待界面或角色选择动画也有复用价值。
 
 ---
 
